@@ -27,6 +27,8 @@ export interface ViewerEngineOptions {
    * Copy it with `npm run copy-assets` in the consuming application.
    */
   workerUrl?: string;
+  /** Show the renderer vendor wordmark. Disabled by default in product UIs. */
+  showVendorLogo?: boolean;
 }
 
 export interface ViewerRuntimeOptions extends ViewerEngineOptions {

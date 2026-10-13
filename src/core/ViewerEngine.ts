@@ -46,6 +46,7 @@ export class ViewerEngine {
       antialias: true,
       preserveDrawingBuffer: true,
     });
+    this.world.renderer.showLogo = this.options.showVendorLogo ?? false;
     this.world.camera = new OBC.OrthoPerspectiveCamera(this.components);
     this.components.init();
     this.components.get(OBC.Grids).create(this.world);
