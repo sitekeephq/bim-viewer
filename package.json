@@ -1,7 +1,11 @@
 {
-  "name": "@7dimensions/bim-viewer",
-  "version": "0.1.1",
+  "name": "@7dimensions-project/bim-viewer",
+  "version": "0.2.0",
   "description": "Shared BIM viewer engine and React integration for 7Dimensions products",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/7Dimensions-Project/7dimensions-bim-viewer.git"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -15,12 +19,19 @@
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js"
     },
-    "./styles.css": "./styles.css"
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js"
+    },
+    "./styles.css": "./styles.css",
+    "./tools.css": "./tools.css",
+    "./copy-assets": "./scripts/copy-assets.mjs"
   },
   "files": [
     "dist",
     "scripts/copy-assets.mjs",
     "styles.css",
+    "tools.css",
     "README.md"
   ],
   "sideEffects": [
@@ -42,6 +53,7 @@
     "@thatopen/components": "3.4.9",
     "@thatopen/components-front": "3.4.5",
     "@thatopen/fragments": "3.4.8",
+    "camera-controls": "3.1.2",
     "three": "0.186.1"
   },
   "devDependencies": {
@@ -53,15 +65,17 @@
     "@types/three": "^0.186.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "camera-controls": "3.1.2",
     "three": "0.186.1",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "5.0.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "license": "UNLICENSED",
   "publishConfig": {
-    "access": "restricted"
+    "access": "restricted",
+    "registry": "https://npm.pkg.github.com"
   }
 }

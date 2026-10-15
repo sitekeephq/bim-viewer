@@ -5,7 +5,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as THREE from "three";
-import type { IssueViewpoint, ViewRule, ViewerEngineOptions } from "./types.js";
+import { rebaseViewpoint, type IssueViewpoint, type Vec3, type ViewerEngineOptions, type ViewpointMeasurement, type ViewpointSections, type ViewpointVisibility, type ViewRule } from "./types.js";
 
 export interface SelectedItem {
   modelId: string;
@@ -13,11 +13,26 @@ export interface SelectedItem {
   globalId: string | null;
   category: string | null;
   name: string | null;
+  /** Name of the IfcBuildingStorey the element is contained in, when known. */
+  storey: string | null;
   /** Attribute groups for the properties panel: group name → [label, value][] */
   groups: { name: string; rows: [string, string][] }[];
 }
 
 type World = OBC.SimpleWorld<OBC.SimpleScene, OBC.OrthoPerspectiveCamera, OBC.SimpleRenderer>;
+
+/** Viewer state that travels with viewpoints next to the camera: section planes / box and measurements (viewer/tools.ts). */
+export interface ViewpointExtrasSource {
+  save(): Promise<{ sections?: ViewpointSections; measurements?: ViewpointMeasurement[] }>;
+  /** `hidden`: the viewpoint hides elements (BCF visibility), so the tools offer "show all". */
+  apply(state: { sections?: ViewpointSections; measurements?: ViewpointMeasurement[]; hidden?: boolean }): Promise<void>;
+  /** Elements were hidden or isolated with the tools: the viewpoint should save visibility. */
+  visibilityChanged?(): boolean;
+  dispose(): void;
+}
+
+/** Largest visibility exception list a viewpoint keeps (the server accepts 20 000). */
+const MAX_VISIBILITY_GUIDS = 20000;
 
 export class ViewerEngine {
   readonly components = new OBC.Components();
@@ -26,11 +41,17 @@ export class ViewerEngine {
   readonly highlighter: OBF.Highlighter;
   private readonly pins = new THREE.Group();
   private readonly clashMarker = new THREE.Group();
+  /** BCF lines / points of the applied viewpoint. */
+  private readonly bcfLines = new THREE.Group();
+  /** Highlighter styles used for BCF colouring (cleared on the next viewpoint). */
+  private readonly bcfStyles = new Set<string>();
   /** Import offset of the first aligned model (model sets / clash view). */
   private baseOffset: THREE.Vector3 | null = null;
   private readonly aligned = new Set<string>();
   private pickHandler: ((e: MouseEvent) => void) | null = null;
   onSelect: (item: SelectedItem | null) => void = () => undefined;
+  /** Sections and measurements saved with viewpoints; set by the viewer tools. */
+  extras: ViewpointExtrasSource | null = null;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -41,17 +62,24 @@ export class ViewerEngine {
     this.world.scene = new OBC.SimpleScene(this.components);
     this.world.scene.setup();
     this.world.scene.three.background = null;
-    // preserveDrawingBuffer lets us take issue snapshots from the canvas.
-    this.world.renderer = new OBC.SimpleRenderer(this.components, container, {
+    // preserveDrawingBuffer lets us take issue snapshots from the canvas. RendererWith2D also draws
+    // the measurement labels (CSS2D). The That Open wordmark is switched off officially (white-label
+    // option); the viewer shows our own mark and the About texts credit That Open (MIT).
+    const renderer = new OBF.RendererWith2D(this.components, container, {
       antialias: true,
       preserveDrawingBuffer: true,
     });
-    this.world.renderer.showLogo = this.options.showVendorLogo ?? false;
+    renderer.showLogo = this.options.showVendorLogo ?? false;
+    // RendererWith2D sets an inline position: relative; the page's CSS positions the container.
+    container.style.position = "";
+    renderer.three2D.domElement.style.left = "0px";
+    this.world.renderer = renderer;
     this.world.camera = new OBC.OrthoPerspectiveCamera(this.components);
     this.components.init();
     this.components.get(OBC.Grids).create(this.world);
     this.world.scene.three.add(this.pins);
     this.world.scene.three.add(this.clashMarker);
+    this.world.scene.three.add(this.bcfLines);
 
     this.fragments = this.components.get(OBC.FragmentsManager);
     this.highlighter = this.components.get(OBF.Highlighter);
@@ -71,6 +99,11 @@ export class ViewerEngine {
     this.fragments.init(this.options.workerUrl ?? "/fragments-worker.mjs");
     this.world.camera.controls.addEventListener("rest", () => this.fragments.core.update(true));
     this.world.camera.controls.addEventListener("update", () => this.fragments.core.update());
+    // Plan view switches to the orthographic camera: models must cull and pick LODs with it.
+    this.world.camera.projection.onChanged.add((camera: THREE.PerspectiveCamera | THREE.OrthographicCamera) => {
+      for (const model of this.fragments.list.values()) model.useCamera(camera);
+      this.fragments.core.update(true);
+    });
     this.fragments.list.onItemSet.add(({ value: model }) => {
       model.useCamera(this.world.camera.three);
       this.world.scene.three.add(model.object);
@@ -137,6 +170,7 @@ export class ViewerEngine {
       globalId: globalId ?? null,
       category: valueOf(data?._category),
       name: valueOf(data?.Name),
+      storey: storeyOf(data ?? {}),
       groups: toGroups(data ?? {}),
     });
   }
@@ -156,16 +190,79 @@ export class ViewerEngine {
     }
     this.world.renderer!.three.render(this.world.scene.three, this.world.camera.three);
     const snapshot = this.snapshot();
+    const cam = this.world.camera.three;
+    const ortho = this.world.camera.projection.current === "Orthographic";
+    // BCF camera fields: the real image up (camera-controls never rolls), field of view, aspect and
+    // for the orthographic camera the visible height.
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+    const size = this.world.renderer!.getSize();
+    const aspect = size.x > 0 && size.y > 0 ? size.x / size.y : undefined;
+    const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+    let viewToWorldScale: number | undefined;
+    if (ortho && cam instanceof THREE.OrthographicCamera && cam.zoom > 0) viewToWorldScale = r6((cam.top - cam.bottom) / cam.zoom);
+    const visibility = await this.visibilityState();
     return {
       camera: {
         position: [pos.x, pos.y, pos.z],
         target: [target.x, target.y, target.z],
-        projection: this.world.camera.projection.current === "Orthographic" ? "orthographic" : "perspective",
+        projection: ortho ? "orthographic" : "perspective",
+        up: [r6(up.x), r6(up.y), r6(up.z)],
+        ...(!ortho && cam instanceof THREE.PerspectiveCamera && { fov: r6(cam.fov) }),
+        ...(aspect && { aspect: r6(aspect) }),
+        ...(viewToWorldScale && { viewToWorldScale }),
       },
+      sceneOffset: await this.frameOffset(),
       fileVersionIds: this.loadedIds,
       selection,
       snapshot,
+      ...(visibility && { visibility }),
+      ...(await this.extrasState()),
     };
+  }
+
+  /**
+   * The frame of the scene: scene = (x, z, −y) + offset for an IFC world point. Aligned models
+   * (model sets, clashes) share the first aligned model's offset; otherwise the first loaded model's.
+   */
+  async frameOffset(): Promise<Vec3> {
+    if (this.baseOffset) return [this.baseOffset.x, this.baseOffset.y, this.baseOffset.z];
+    const first = [...this.fragments.list.values()][0];
+    if (!first) return [0, 0, 0];
+    const o = (await offsetOf(first)).add(first.object.position);
+    return [o.x, o.y, o.z];
+  }
+
+  /** Hidden / isolated elements as BCF visibility (the shorter list), when the tools hid any. */
+  private async visibilityState(): Promise<ViewpointVisibility | undefined> {
+    if (!this.extras?.visibilityChanged?.()) return undefined;
+    const hidden: string[] = [];
+    const shown: string[] = [];
+    for (const model of this.fragments.list.values()) {
+      const off = await model.getItemsByVisibility(false);
+      if (!off.length) continue;
+      const on = await model.getItemsByVisibility(true);
+      const isolated = on.length < off.length;
+      const guids = (await model.getGuidsByLocalIds(isolated ? on : off)).filter((g): g is string => !!g);
+      (isolated ? shown : hidden).push(...guids);
+    }
+    // One list for every model: "only these visible" (isolation) or "all but these" (hiding).
+    if (shown.length && !hidden.length && shown.length <= MAX_VISIBILITY_GUIDS) return { defaultVisible: false, exceptions: shown };
+    if (hidden.length && !shown.length && hidden.length <= MAX_VISIBILITY_GUIDS) return { defaultVisible: true, exceptions: hidden };
+    return undefined;
+  }
+
+  /** Section planes / box and measurements for a viewpoint or saved view (empty fields left out). */
+  async extrasState(): Promise<{ sections?: ViewpointSections; measurements?: ViewpointMeasurement[] }> {
+    try {
+      return (await this.extras?.save()) ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Restores the sections and measurements of a viewpoint; older viewpoints without them clear both. */
+  async applyExtras(state: { sections?: ViewpointSections; measurements?: ViewpointMeasurement[]; hidden?: boolean }): Promise<void> {
+    await this.extras?.apply(state);
   }
 
   private snapshot(): string {
@@ -178,10 +275,19 @@ export class ViewerEngine {
     return c.toDataURL("image/jpeg", 0.8);
   }
 
-  async applyViewpoint(vp: IssueViewpoint): Promise<void> {
-    const [px, py, pz] = vp.camera.position;
-    const [tx, ty, tz] = vp.camera.target;
-    await this.world.camera.controls.setLookAt(px, py, pz, tx, ty, tz, true);
+  /**
+   * Applies an issue viewpoint (ours or imported from BCF): moved into this viewer's frame first,
+   * then sections / measurements, camera (projection, field of view, orthographic scale; a straight
+   * top view keeps the BCF up direction), visibility, colouring, lines and selection.
+   */
+  async applyViewpoint(input: IssueViewpoint): Promise<void> {
+    const vp = rebaseViewpoint(input, await this.frameOffset());
+    // Sections and measurements first: leaving the Plan view resets the projection and distance.
+    await this.applyExtras({ sections: vp.sections, measurements: vp.measurements, hidden: !!vp.visibility });
+    if (!vp.snapshotOnly) await this.applyCamera(vp.camera);
+    await this.applyVisibility(vp.visibility);
+    await this.applyColoring(vp.coloring ?? []);
+    this.drawLines(vp.lines ?? []);
     await this.highlighter.clear("select");
     if (vp.selection?.length) {
       const map: OBC.ModelIdMap = {};
@@ -192,6 +298,97 @@ export class ViewerEngine {
       if (Object.keys(map).length) await this.highlighter.highlightByID("select", map, true, false);
     }
     this.fragments.core.update(true);
+  }
+
+  private async applyCamera(c: IssueViewpoint["camera"]) {
+    const camera = this.world.camera;
+    const controls = camera.controls;
+    // Orthographic only for BCF-style viewpoints that carry a scale; older plan-view viewpoints keep the camera.
+    if (c.projection === "orthographic" && c.viewToWorldScale && camera.projection.current !== "Orthographic") await camera.projection.set("Orthographic");
+    if (c.projection === "perspective" && camera.projection.current !== "Perspective") await camera.projection.set("Perspective");
+    const pos = new THREE.Vector3(...c.position);
+    const target = new THREE.Vector3(...c.target);
+    const dir = target.clone().sub(pos);
+    const dist = dir.length();
+    if (c.up && dist > 0 && Math.abs(dir.normalize().y) > 0.999) {
+      // Straight up / down: camera-controls cannot roll, so move the eye a hair against the wanted
+      // image up; the azimuth then follows it.
+      const up = new THREE.Vector3(...c.up).setY(0);
+      if (up.lengthSq() > 1e-12) pos.addScaledVector(up.normalize(), -dist * 1e-3);
+    }
+    await controls.setLookAt(pos.x, pos.y, pos.z, target.x, target.y, target.z, false);
+    const three = camera.three;
+    if (c.fov && three instanceof THREE.PerspectiveCamera && Math.abs(three.fov - c.fov) > 1e-3) {
+      three.fov = Math.min(120, Math.max(10, c.fov));
+      three.updateProjectionMatrix();
+    }
+    if (c.viewToWorldScale && three instanceof THREE.OrthographicCamera && three.top > three.bottom) {
+      await controls.zoomTo((three.top - three.bottom) / c.viewToWorldScale, false);
+    }
+  }
+
+  private async applyVisibility(v: ViewpointVisibility | undefined) {
+    if (!this.fragments.list.size) return;
+    const hider = this.components.get(OBC.Hider);
+    await hider.set(true);
+    if (!v) return;
+    const map: OBC.ModelIdMap = {};
+    for (const [modelId, model] of this.fragments.list) {
+      const ids = await localIds(model, v.exceptions);
+      if (ids.length) map[modelId] = new Set(ids);
+    }
+    if (!Object.keys(map).length) return;
+    if (v.defaultVisible) await hider.set(false, map);
+    else await hider.isolate(map);
+  }
+
+  private async applyColoring(coloring: { color: string; guids: string[] }[]) {
+    for (const style of this.bcfStyles) {
+      if (this.highlighter.styles.has(style) && this.highlighter.selection[style]) await this.highlighter.clear(style);
+    }
+    for (const c of coloring) {
+      const hex = c.color.length === 8 ? c.color.slice(2) : c.color;
+      const alpha = c.color.length === 8 ? parseInt(c.color.slice(0, 2), 16) / 255 : 1;
+      const style = `bcf-${c.color}`;
+      if (!this.highlighter.styles.has(style)) {
+        this.highlighter.styles.set(style, { color: new THREE.Color(`#${hex}`), opacity: alpha, transparent: alpha < 1, renderedFaces: 0 as const, priority: 1 });
+      }
+      this.bcfStyles.add(style);
+      const map: OBC.ModelIdMap = {};
+      for (const [modelId, model] of this.fragments.list) {
+        const ids = await localIds(model, c.guids);
+        if (ids.length) map[modelId] = new Set(ids);
+      }
+      if (Object.keys(map).length) await this.highlighter.highlightByID(style, map, false, false);
+    }
+  }
+
+  /** BCF lines; a line whose ends coincide is drawn as a point. */
+  private drawLines(lines: [Vec3, Vec3][]) {
+    for (const child of [...this.bcfLines.children]) {
+      const o = child as THREE.Mesh | THREE.LineSegments;
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+      this.bcfLines.remove(o);
+    }
+    if (!lines.length) return;
+    const color = cssColor("--primary", "#3b6fb5");
+    const segs: number[] = [];
+    for (const [a, b] of lines) {
+      if (a.every((v, i) => Math.abs(v - b[i]!) < 1e-9)) {
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.9 }));
+        dot.renderOrder = 10;
+        dot.position.set(...a);
+        this.bcfLines.add(dot);
+      } else segs.push(...a, ...b);
+    }
+    if (segs.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(segs, 3));
+      const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
+      line.renderOrder = 10;
+      this.bcfLines.add(line);
+    }
   }
 
   /** Waits for one click on the model and returns the hit point (for issue pins). */
@@ -321,6 +518,41 @@ export class ViewerEngine {
     if (count) await this.highlighter.highlightByID("select", map, true, zoom);
     this.fragments.core.update(true);
     return count;
+  }
+
+  /**
+   * "Modele sor" results: colours the matches (theme accent) in the given models, optionally
+   * isolates them and zooms to them. Returns how many elements were found in the loaded models.
+   */
+  async showMatches(groups: { modelId: string; guids: string[] }[], opts: { isolate?: boolean; zoom?: boolean } = {}): Promise<number> {
+    const styles = this.highlighter.styles;
+    const color = new THREE.Color(cssColor("--primary", "#3b6fb5"));
+    styles.set("q-match", { color, opacity: 1, transparent: false, renderedFaces: 0 as const, priority: 3 });
+    await this.clearMatches(false);
+    const map: OBC.ModelIdMap = {};
+    let count = 0;
+    for (const g of groups) {
+      const model = this.fragments.list.get(g.modelId);
+      if (!model || !g.guids.length) continue;
+      const ids = await localIds(model, g.guids);
+      if (!ids.length) continue;
+      const set = (map[g.modelId] ??= new Set());
+      ids.forEach((id) => set.add(id));
+      count += ids.length;
+    }
+    if (count) {
+      await this.highlighter.highlightByID("q-match", map, true, false);
+      if (opts.isolate) await this.components.get(OBC.Hider).isolate(map);
+      if (opts.zoom) await this.world.camera.fitToItems(map);
+    }
+    this.fragments.core.update(true);
+    return count;
+  }
+
+  async clearMatches(showAll = true): Promise<void> {
+    if (this.highlighter.styles.has("q-match") && this.highlighter.selection["q-match"]) await this.highlighter.clear("q-match");
+    if (showAll && this.fragments.list.size) await this.components.get(OBC.Hider).set(true);
+    this.fragments.core.update(true);
   }
 
   /** GlobalIds of the current selection per model (model id = file version id). */
@@ -554,6 +786,8 @@ export class ViewerEngine {
 
   dispose() {
     this.cancelPick();
+    this.extras?.dispose();
+    this.extras = null;
     this.components.dispose();
   }
 }
@@ -569,6 +803,16 @@ async function offsetOf(model: { getCoordinates(): Promise<number[]> }): Promise
 }
 
 export const CLASH_COLORS = { a: "#d92d20", b: "#2e90fa" };
+
+/** A colour token of the app theme (light / dark) for three.js materials. */
+export function cssColor(token: string, fallback: string): string {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+    return v || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /** Local ids of elements of the given IFC classes ("IfcWall" also matches IfcWallStandardCase). */
 async function idsOfClasses(model: { getItemsOfCategories(c: RegExp[]): Promise<Record<string, number[]>> }, classes: string[]) {
@@ -613,6 +857,16 @@ function valueOf(attr: unknown): string | null {
 }
 
 type Data = Record<string, unknown>;
+
+/** Name of the storey an element is directly contained in (ContainedInStructure). */
+function storeyOf(data: Data): string | null {
+  const list = data.ContainedInStructure;
+  if (!Array.isArray(list)) return null;
+  for (const s of list as Data[]) {
+    if (/storey/i.test(valueOf(s._category) ?? "")) return valueOf(s.Name) ?? valueOf(s.LongName);
+  }
+  return null;
+}
 
 /** Turns That Open item data into readable groups: attributes, then one group per property set. */
 function toGroups(data: Data): { name: string; rows: [string, string][] }[] {

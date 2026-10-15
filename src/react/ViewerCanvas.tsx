@@ -17,6 +17,7 @@ export interface ViewerCanvasHandle {
 
 export interface ViewerCanvasProps {
   workerUrl?: string;
+  showVendorLogo?: boolean;
   extensions?: readonly ViewerExtension[];
   className?: string;
   style?: CSSProperties;
@@ -33,6 +34,7 @@ export const ViewerCanvas = forwardRef<ViewerCanvasHandle, ViewerCanvasProps>(
   function ViewerCanvas(
     {
       workerUrl,
+      showVendorLogo,
       extensions = EMPTY_EXTENSIONS,
       className,
       style,
@@ -60,7 +62,7 @@ export const ViewerCanvas = forwardRef<ViewerCanvasHandle, ViewerCanvasProps>(
       let cancelled = false;
       let extensionHost: ExtensionHost | undefined;
 
-      void ViewerEngine.create(container, { workerUrl })
+      void ViewerEngine.create(container, { workerUrl, showVendorLogo })
         .then(async (engine) => {
           if (cancelled) {
             engine.dispose();
@@ -97,7 +99,7 @@ export const ViewerCanvas = forwardRef<ViewerCanvasHandle, ViewerCanvasProps>(
         });
         engine?.dispose();
       };
-    }, [extensions, workerUrl]);
+    }, [extensions, showVendorLogo, workerUrl]);
 
     return (
       <div

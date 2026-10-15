@@ -3,15 +3,23 @@ export {
   COMPARE_COLORS,
   FOURD_COLORS,
   ViewerEngine,
+  cssColor,
 } from "./core/ViewerEngine.js";
-export type { FourDStatus, SelectedItem } from "./core/ViewerEngine.js";
+export type { FourDStatus, SelectedItem, ViewpointExtrasSource } from "./core/ViewerEngine.js";
 export type {
   IssueViewpoint,
+  Vec3,
   ViewRule,
   ViewerCameraState,
   ViewerEngineOptions,
   ViewerRuntimeOptions,
+  ViewpointColoring,
+  ViewpointMeasurement,
+  ViewpointSectionPlane,
+  ViewpointSections,
+  ViewpointVisibility,
 } from "./core/types.js";
+export { rebaseViewpoint } from "./core/types.js";
 export { ExtensionHost } from "./extensions/ExtensionHost.js";
 export type {
   ViewerExtension,
