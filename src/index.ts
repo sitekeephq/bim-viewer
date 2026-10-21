@@ -26,3 +26,5 @@ export type {
   ViewerExtensionCleanup,
   ViewerExtensionContext,
 } from "./extensions/types.js";
+export { createThemeExtension } from "./extensions/themeExtension.js";
+export type { ThemeExtensionOptions } from "./extensions/themeExtension.js";

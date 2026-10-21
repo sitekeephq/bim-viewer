@@ -1,6 +1,6 @@
 {
   "name": "@7dimensions-project/bim-viewer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shared BIM viewer engine and React integration for 7Dimensions products",
   "repository": {
     "type": "git",
@@ -25,7 +25,11 @@
     },
     "./styles.css": "./styles.css",
     "./tools.css": "./tools.css",
-    "./copy-assets": "./scripts/copy-assets.mjs"
+    "./copy-assets": "./scripts/copy-assets.mjs",
+    "./scan": {
+      "types": "./dist/scan/index.d.ts",
+      "import": "./dist/scan/index.js"
+    }
   },
   "files": [
     "dist",
