@@ -43,8 +43,11 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e/tsconfig.json",
     "test": "vitest run",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
+    "playground": "node scripts/copy-assets.mjs playground/public && node scripts/copy-test-models.mjs playground/public && vite --config playground/vite.config.ts",
+    "fixtures": "node scripts/build-test-frags.mjs && node scripts/build-discipline-frags.mjs && node scripts/build-scan-fixtures.mjs",
     "copy-assets": "node scripts/copy-assets.mjs",
     "prepare": "npm run build",
     "prepack": "npm run build"
@@ -61,18 +64,26 @@
     "three": "0.186.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@thatopen/components": "3.4.9",
     "@thatopen/components-front": "3.4.5",
     "@thatopen/fragments": "3.4.8",
+    "@types/node": "^26.6.5",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "camera-controls": "3.1.2",
+    "happy-dom": "^21.0.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "camera-controls": "3.1.2",
     "three": "0.186.1",
     "typescript": "^5.9.3",
-    "vitest": "5.0.3"
+    "vite": "^8.3.5",
+    "vitest": "5.0.3",
+    "web-ifc": "0.0.78"
   },
   "engines": {
     "node": ">=22"

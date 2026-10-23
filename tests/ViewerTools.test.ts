@@ -263,6 +263,11 @@ describe("viewer shortcuts", () => {
   it("does not fire while typing", () => {
     expect(isTypingTarget({ tagName: "INPUT" } as unknown as EventTarget)).toBe(true);
     expect(isTypingTarget({ tagName: "DIV", isContentEditable: true } as unknown as EventTarget)).toBe(true);
+    expect(isTypingTarget({ tagName: "INPUT", type: "text" } as unknown as EventTarget)).toBe(true);
+    expect(isTypingTarget({ tagName: "INPUT", type: "search" } as unknown as EventTarget)).toBe(true);
+    expect(isTypingTarget({ tagName: "INPUT", type: "checkbox" } as unknown as EventTarget)).toBe(false);
+    expect(isTypingTarget({ tagName: "INPUT", type: "radio" } as unknown as EventTarget)).toBe(false);
+    expect(isTypingTarget({ tagName: "INPUT", type: "range" } as unknown as EventTarget)).toBe(false);
     expect(isTypingTarget({ tagName: "CANVAS" } as unknown as EventTarget)).toBe(false);
     expect(isTypingTarget(null)).toBe(false);
   });

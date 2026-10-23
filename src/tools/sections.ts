@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Vec3, ViewpointSections } from "../core/types.js";
 import { cssColor, type ViewerEngine } from "../core/ViewerEngine.js";
+import { compactSectionMeshes } from "./section-meshes.js";
 
 export type PlaneKind = "plane" | "box" | "plan";
 
@@ -39,6 +40,8 @@ export class SectionTool {
   private boxHelper: THREE.Box3Helper | null = null;
   private probing: Promise<void> | null = null;
   private disposed = false;
+  /** Scene hook that compacts new cut lines / fills right before each frame (see section-meshes.ts). */
+  private readonly sceneHook: { scene: THREE.Scene; previous: THREE.Scene["onBeforeRender"] } | null;
   /** Current section box (null: none). */
   box: THREE.Box3 | null = null;
   /** "Kesit Düzlemi" is waiting for a double-click on a face. */
@@ -67,7 +70,16 @@ export class SectionTool {
     const fill = new THREE.MeshBasicMaterial({ color: new THREE.Color(cssColor("--vt-section-fill", "#9aa5b1")), side: THREE.DoubleSide });
     this.styler.styles.set(STYLE_FILL, { linesMaterial: lines, fillsMaterial: fill });
     this.styler.styles.set(STYLE_LINES, { linesMaterial: lines.clone() });
+
+    const scene = world.scene?.three as THREE.Scene | undefined;
+    this.sceneHook = scene ? { scene, previous: scene.onBeforeRender } : null;
+    if (scene) scene.onBeforeRender = this.beforeRender;
   }
+
+  private beforeRender: THREE.Scene["onBeforeRender"] = (...args) => {
+    if (!this.disposed && this.edges.size) compactSectionMeshes([...this.edges.values()].map((e) => e.three));
+    this.sceneHook?.previous.apply(this.sceneHook.scene, args);
+  };
 
   get planes(): SectionPlaneInfo[] {
     return [...this.entries.values()].map(({ id, kind, no, enabled }) => ({ id, kind, no, enabled }));
@@ -220,6 +232,10 @@ export class SectionTool {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    // Hand the scene hook back unless something chained after us (then ours is a no-op).
+    if (this.sceneHook && this.sceneHook.scene.onBeforeRender === this.beforeRender) {
+      this.sceneHook.scene.onBeforeRender = this.sceneHook.previous;
+    }
     try {
       this.clipper.onAfterDrag.remove(this.afterDrag);
       for (const id of [...this.entries.keys()]) this.remove(id);

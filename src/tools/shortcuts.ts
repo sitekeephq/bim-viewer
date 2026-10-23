@@ -72,8 +72,12 @@ export const SHORTCUT_HELP: { keys: string; text: string }[] = [
 ];
 
 /** True when the event target is a text field (shortcuts must not fire while typing). */
+/** Inputs that keep the focus after a click but take no text (panel check boxes, storey radios, the walk speed). */
+const NON_TEXT_INPUTS = /^(checkbox|radio|range|button|submit|reset|color)$/i;
+
 export function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as { tagName?: string; isContentEditable?: boolean } | null;
+  const el = target as { tagName?: string; isContentEditable?: boolean; type?: string } | null;
   if (!el || typeof el.tagName !== "string") return false;
+  if (el.tagName === "INPUT" && NON_TEXT_INPUTS.test(el.type ?? "")) return false;
   return el.isContentEditable === true || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
 }

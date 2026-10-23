@@ -5,6 +5,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as THREE from "three";
+import { cutBaseUnderOverlaysIn } from "./overlay-groups.js";
 import { rebaseViewpoint, type IssueViewpoint, type Vec3, type ViewerEngineOptions, type ViewpointMeasurement, type ViewpointSections, type ViewpointVisibility, type ViewRule } from "./types.js";
 
 export interface SelectedItem {
@@ -80,6 +81,14 @@ export class ViewerEngine {
     this.world.scene.three.add(this.pins);
     this.world.scene.three.add(this.clashMarker);
     this.world.scene.three.add(this.bcfLines);
+    // See-through highlights (X-ray, faded comparison / 4D, rule opacity) need the opaque base
+    // groups cut under them before each frame (overlay-groups.ts).
+    const scene = this.world.scene.three;
+    const previous = scene.onBeforeRender;
+    scene.onBeforeRender = (...args) => {
+      cutBaseUnderOverlaysIn([...this.fragments.list.values()].map((model) => model.object));
+      previous.apply(scene, args);
+    };
 
     this.fragments = this.components.get(OBC.FragmentsManager);
     this.highlighter = this.components.get(OBF.Highlighter);
@@ -129,7 +138,13 @@ export class ViewerEngine {
     if (!res.ok) throw new Error(`Model yüklenemedi (HTTP ${res.status})`);
     const buffer = await res.arrayBuffer();
     onProgress?.(60);
-    await this.fragments.core.load(buffer, { modelId, camera: this.world.camera.three });
+    try {
+      await this.fragments.core.load(buffer, { modelId, camera: this.world.camera.three });
+    } catch (error) {
+      // The Fragments worker rejects with a string ("Error: Fragments: Malformed fragments data!").
+      const detail = error instanceof Error ? error.message : String(error).replace(/^Error:\s*/, "");
+      throw new Error(`Model okunamadı: ${detail}`, { cause: error });
+    }
     onProgress?.(100);
   }
 

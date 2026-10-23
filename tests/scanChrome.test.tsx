@@ -1,0 +1,238 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as THREE from "three";
+import { ErrorOverlay, LoadingOverlay, scanStatusText } from "../src/react/scan/ScanChrome";
+import { LayerVisibilityControl } from "../src/react/scan/LayerVisibilityControl";
+import { ModelElementPanel } from "../src/react/scan/ModelElementPanel";
+import { ScanIotToolbar } from "../src/react/scan/ScanIotToolbar";
+import { ZoomHud } from "../src/react/scan/ZoomHud";
+import { IoTExtensionPanel } from "../src/react/scan/IoTExtensionPanel";
+import type { ScanElementSelection } from "../src/scan/selection/scanSelection";
+import type { IotSensor } from "../src/scan/types";
+import type { IoTDataView } from "../src/scan/iot/dataView";
+
+afterEach(() => cleanup());
+
+const sensor = (over: Partial<IotSensor> = {}): IotSensor => ({
+  id: "s1",
+  name: "Nokta A",
+  groupName: "281",
+  channel: "cant",
+  channelLabel: "Cant",
+  unit: "mm",
+  value: 1.2,
+  status: "ok",
+  position: [0, 1, 0],
+  km: 281,
+  metre: 0,
+  timestamps: [new Date("2024-01-01T00:00:00Z")],
+  series: [1.2],
+  limits: { AL: { min: -5, max: 5 } },
+  ...over,
+});
+
+function dataView(): IoTDataView {
+  return {
+    sensors: new Map([["s1", { name: "Nokta A", location: { x: 0, y: 0, z: 0 }, km: 281, metre: 0 }]]),
+    channels: new Map([["cant", { name: "Cant", unit: "mm", limits: { AL: { min: -5, max: 5 } } }]]),
+    samples: {
+      timestamps: [new Date("2024-01-01T00:00:00Z"), new Date("2025-01-01T00:00:00Z")],
+      data: { s1: { cant: [1.2, 2.4] } },
+    },
+  } as unknown as IoTDataView;
+}
+
+describe("scanStatusText", () => {
+  it("describes BIM vs scan load states", () => {
+    expect(scanStatusText(false, "off")).toMatch(/IoT/);
+    expect(scanStatusText(true, "off")).toMatch(/LAS \+ ölçüm/);
+    expect(scanStatusText(true, "loading")).toMatch(/Güzergah modeli yükleniyor/);
+    expect(scanStatusText(true, "ready")).toMatch(/Güzergah/);
+    expect(scanStatusText(true, "error")).toMatch(/henüz hazır değil/);
+  });
+});
+
+describe("scan chrome overlays", () => {
+  it("portals a loading overlay with steps and hides when done", () => {
+    const { rerender } = render(
+      <LoadingOverlay
+        show
+        title="Yükleniyor..."
+        detail="Fragments"
+        steps={[
+          { id: "las", label: "LAS", done: true },
+          { id: "ifc", label: "Güzergah", done: false },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Yükleniyor...")).toBeTruthy();
+    expect(screen.getByText("LAS · hazır")).toBeTruthy();
+    expect(screen.getByText("Güzergah")).toBeTruthy();
+    rerender(<LoadingOverlay show={false} />);
+    expect(screen.queryByText("Yükleniyor...")).toBeNull();
+  });
+
+  it("renders an error overlay only when a message is set", () => {
+    const { rerender } = render(<ErrorOverlay message={null} />);
+    expect(screen.queryByText(/Hata:/)).toBeNull();
+    rerender(<ErrorOverlay message="ağ koptu" />);
+    expect(screen.getByText("Hata: ağ koptu")).toBeTruthy();
+  });
+});
+
+describe("scan HUD chrome", () => {
+  it("toggles layer visibility", () => {
+    const onModelVisible = vi.fn();
+    const onLasVisible = vi.fn();
+    render(
+      <LayerVisibilityControl
+        modelVisible
+        lasVisible={false}
+        onModelVisible={onModelVisible}
+        onLasVisible={onLasVisible}
+      />,
+    );
+    expect(screen.getByText("Katmanlar")).toBeTruthy();
+    screen.getByRole("button", { name: /Model/ }).click();
+    screen.getByRole("button", { name: /LAS/ }).click();
+    expect(onModelVisible).toHaveBeenCalledWith(false);
+    expect(onLasVisible).toHaveBeenCalledWith(true);
+  });
+
+  it("shows zoom MAX and reports slider / reset", () => {
+    const onReset = vi.fn();
+    const onZoomPercent = vi.fn();
+    render(
+      <ZoomHud
+        visible
+        status="Balıkesir Susurluk · LAS + ölçüm noktaları"
+        zoom={{ ratio: 10, percent: 100, atMax: true, ready: true }}
+        onReset={onReset}
+        onZoomPercent={onZoomPercent}
+      />,
+    );
+    expect(screen.getByText("Balıkesir Susurluk · LAS + ölçüm noktaları")).toBeTruthy();
+    expect(screen.getByText("MAX")).toBeTruthy();
+    screen.getByRole("button", { name: "Reset" }).click();
+    expect(onReset).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByLabelText("Yakınlaştırma oranı"), { target: { value: "40" } });
+    expect(onZoomPercent).toHaveBeenCalledWith(40);
+  });
+
+  it("hides the zoom HUD when not visible", () => {
+    render(
+      <ZoomHud
+        visible={false}
+        zoom={{ ratio: 1, percent: 0, atMax: false, ready: true }}
+        onReset={() => undefined}
+        onZoomPercent={() => undefined}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  });
+
+  it("toggles IoT toolbar actions", () => {
+    const onToggle = vi.fn();
+    render(<ScanIotToolbar active={["list", "heatmap"]} onToggle={onToggle} />);
+    expect(screen.getByRole("toolbar", { name: "IoT araçları" })).toBeTruthy();
+    screen.getByRole("button", { name: "Liste" }).click();
+    screen.getByRole("button", { name: "Km" }).click();
+    expect(onToggle).toHaveBeenCalledWith("list");
+    expect(onToggle).toHaveBeenCalledWith("range");
+  });
+
+  it("lists the selected güzergah element", () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
+    const mesh = new THREE.Mesh(geometry);
+    mesh.name = "guzergah-sleepers";
+    const selection: ScanElementSelection = {
+      id: "sleepers-1",
+      label: "Travers 1",
+      part: "sleepers",
+      elementIndex: 0,
+      vertexStart: 0,
+      vertexEnd: 4,
+      mesh,
+      box: new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(2, 0.4, 1)),
+    };
+    const onClose = vi.fn();
+    render(
+      <ModelElementPanel
+        selection={selection}
+        meta={{
+          source: "guzergah.ifc",
+          counts: { sleepers: 8, rails: 2 },
+          parts: { sleepers: { file: "sleepers.bin", triangles: 12, bbox: { min: [0, 0, 0], max: [2, 1, 1] } } },
+        }}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByText("Model bilgileri")).toBeTruthy();
+    expect(screen.getByText("Travers 1")).toBeTruthy();
+    expect(screen.getByText("guzergah.ifc")).toBeTruthy();
+    screen.getByLabelText("Seçimi temizle").click();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("IoTExtensionPanel", () => {
+  const sensors = [sensor(), sensor({ id: "s2", name: "Nokta B", value: 8, status: "alarm", metre: 25 })];
+  const base = {
+    sensors,
+    selectedId: "s1" as string | null,
+    dataView: dataView(),
+    channelId: "cant",
+    year: 2024,
+    bimOn: true,
+    pointCloudOn: false,
+    heatmapFilter: "all" as const,
+    onChannel: vi.fn(),
+    onYear: vi.fn(),
+    onToggleBim: vi.fn(),
+    onTogglePointCloud: vi.fn(),
+    onSelect: vi.fn(),
+    onOpenDetail: vi.fn(),
+    onHeatmapFilter: vi.fn(),
+    onClose: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: () => undefined,
+      beginPath: () => undefined,
+      moveTo: () => undefined,
+      lineTo: () => undefined,
+      stroke: () => undefined,
+      fill: () => undefined,
+      fillText: () => undefined,
+      fillStyle: "",
+      strokeStyle: "",
+      lineWidth: 0,
+      font: "",
+      textAlign: "center",
+      textBaseline: "middle",
+    } as unknown as CanvasRenderingContext2D);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("lists sensors and opens detail", () => {
+    render(<IoTExtensionPanel {...base} view="list" />);
+    expect(screen.getByText("IoT Sensors")).toBeTruthy();
+    screen.getByText("Nokta B").closest("button")?.click();
+    expect(base.onSelect).toHaveBeenCalledWith("s2");
+    expect(base.onOpenDetail).toHaveBeenCalled();
+  });
+
+  it("renders detail, heatmap and range views", () => {
+    const { rerender } = render(<IoTExtensionPanel {...base} view="detail" />);
+    expect(screen.getByText("Sensor Detail")).toBeTruthy();
+    expect(screen.getByText(/Cant/)).toBeTruthy();
+    rerender(<IoTExtensionPanel {...base} view="heatmap" />);
+    expect(screen.getByText("IoT Heatmaps")).toBeTruthy();
+    expect(screen.getByText("BIM / güzergah")).toBeTruthy();
+    rerender(<IoTExtensionPanel {...base} view="range" />);
+    expect(screen.getByText("Km Aralığı Grafiği")).toBeTruthy();
+    expect(screen.getByText(/ölçüm noktası/)).toBeTruthy();
+  });
+});

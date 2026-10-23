@@ -198,17 +198,11 @@ export function createScanLayers(host: ScanLayerHost) {
         }
         const focus = railFocusBox(mesh);
         fitCameraToRail(cam?.controls, focus);
-        if (typeof cam?.fit === "function") {
-          const helper = new THREE.Mesh(new THREE.BoxGeometry(36, 6, 36));
-          helper.position.copy(focus.getCenter(new THREE.Vector3()));
-          helper.visible = false;
-          scene.add(helper);
-          try {
-            await cam.fit([helper], 2.2);
-          } finally {
-            scene.remove(helper);
-            helper.geometry.dispose();
-          }
+        if (typeof cam?.controls?.fitToSphere === "function") {
+          // Same framing as camera.fit([36 × 6 × 36 box], 2.2), without its transition: the animated
+          // fit's "rest" event sometimes never came and the loading overlay stayed up for good.
+          const sphere = new THREE.Sphere(focus.getCenter(new THREE.Vector3()), 36 * 2.2);
+          await cam.controls.fitToSphere(sphere, false);
         }
         captureCameraPose(cam?.controls, true);
         setScanIfcStatus("ready");

@@ -39,6 +39,8 @@ import { LayerVisibilityControl } from "./LayerVisibilityControl.js";
 import { ModelElementPanel } from "./ModelElementPanel.js";
 import { ScanIotToolbar } from "./ScanIotToolbar.js";
 
+const EMPTY_EXTENSIONS: readonly ViewerExtension[] = [];
+
 export interface ScanViewerProps {
   /** Fragment fallback routes when güzergah mesh is unavailable. */
   fragmentRoutes: string[];
@@ -49,8 +51,8 @@ export interface ScanViewerProps {
 
 export function ScanViewer({
   fragmentRoutes,
-  resolveModelUrl = (url) => url,
-  extensions = [],
+  resolveModelUrl = (url: string) => url,
+  extensions = EMPTY_EXTENSIONS,
   branding,
 }: ScanViewerProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
