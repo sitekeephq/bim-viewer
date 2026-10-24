@@ -142,6 +142,7 @@ export class SectionTool {
 
   /** Section box with six draggable faces (null removes it). */
   setBox(box: THREE.Box3 | null) {
+    if (box && !box.isEmpty() && this.moveBox(box)) return;
     for (const [id, e] of [...this.entries]) if (e.kind === "box") this.remove(id);
     this.dropBoxHelper();
     if (box && !box.isEmpty()) {
@@ -170,6 +171,34 @@ export class SectionTool {
     }
     this.engine.fragments.core.update(true);
     this.onChange();
+  }
+
+  /**
+   * Moves the faces of the current box instead of rebuilding them. Rebuilding disposed the cut
+   * materials, so three dropped their shader programs and the new faces compiled them again (a
+   * visible hitch on every viewpoint with a box). Returns false when there is no complete box.
+   */
+  private moveBox(box: THREE.Box3): boolean {
+    const faces = [...this.entries.values()].filter((e) => e.kind === "box");
+    if (!this.box || faces.length !== AXES.length * 2) return false;
+    const planes = faces.map((e) => ({ e, plane: this.clipper.list.get(e.id) }));
+    if (planes.some(({ e, plane }) => !plane || !e.axis || !e.side)) return false;
+    const b = box.clone();
+    const center = b.getCenter(new THREE.Vector3());
+    const size = b.getSize(new THREE.Vector3());
+    const faceSize = Math.max(size.x, size.y, size.z, 1) * 1.6;
+    for (const { e, plane } of planes) {
+      const origin = center.clone();
+      origin[e.axis!] = b[e.side!][e.axis!];
+      plane!.setFromNormalAndCoplanarPoint(plane!.normal.clone(), origin);
+      plane!.size = faceSize;
+      void this.edges.get(e.id)?.update();
+    }
+    this.box = b;
+    if (this.boxHelper) this.boxHelper.box = b;
+    this.engine.fragments.core.update(true);
+    this.onChange();
+    return true;
   }
 
   /** Horizontal cut of the Plan view at a scene height: everything above it is clipped (null removes it). */
@@ -224,7 +253,8 @@ export class SectionTool {
   }
 
   apply(state: ViewpointSections) {
-    this.clear();
+    // A viewpoint with a box keeps the current box faces (moved, see moveBox).
+    this.clear(state.box ? ["plane", "plan"] : undefined);
     for (const p of state.planes) this.addPlane(p.origin, p.normal, "plane", p.enabled !== false);
     this.setBox(state.box ? new THREE.Box3(v3(state.box.min), v3(state.box.max)) : null);
   }

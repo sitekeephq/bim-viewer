@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { IfcImporter } from "@thatopen/fragments";
+import { writeFixtureStamp } from "./fixture-stamp.mjs";
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "..");
@@ -29,3 +30,4 @@ async function convert(name) {
 
 mkdirSync(outDir, { recursive: true });
 for (const name of files) await convert(name);
+writeFixtureStamp(outDir);

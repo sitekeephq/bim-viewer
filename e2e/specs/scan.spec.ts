@@ -1,8 +1,11 @@
 import { expect, test } from "../support/fixtures";
 
-test("ScanViewer mounts WebGL and loads LAS + güzergah", async ({ page, diagnostics }) => {
-  // The IoT client tries its default live API (localhost:8080) before the sample data.
-  diagnostics.allow(/ERR_CONNECTION_REFUSED/);
+test("ScanViewer mounts WebGL and loads LAS + güzergah", async ({ page }) => {
+  // No IoT API configured: straight to the bundled sample, no request to a guessed port.
+  const iotRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/(sensors|channels|samples)$/.test(new URL(request.url()).pathname)) iotRequests.push(request.url());
+  });
 
   await page.goto("/scan.html");
   await expect(page.getByTestId("scan-shell")).toBeVisible();
@@ -21,4 +24,5 @@ test("ScanViewer mounts WebGL and loads LAS + güzergah", async ({ page, diagnos
   await expect(page.getByText("281+000.00")).toBeVisible();
 
   await expect(page.getByTestId("viewer-error")).toHaveCount(0);
+  expect(iotRequests).toEqual([]);
 });

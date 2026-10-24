@@ -72,6 +72,7 @@ export function fakeClipper() {
       normal: THREE.Vector3;
       helper: { position: THREE.Vector3 };
       controls: { addEventListener: () => void; removeEventListener: () => void };
+      setFromNormalAndCoplanarPoint(normal: THREE.Vector3, point: THREE.Vector3): void;
     }
   >();
   let n = 0;
@@ -87,7 +88,7 @@ export function fakeClipper() {
     },
     createFromNormalAndCoplanarPoint(_world: unknown, normal: THREE.Vector3, origin: THREE.Vector3) {
       const id = `clip-${++n}`;
-      planes.set(id, {
+      const plane = {
         size: 10,
         enabled: true,
         visible: true,
@@ -95,7 +96,12 @@ export function fakeClipper() {
         normal: normal.clone(),
         helper: { position: origin.clone() },
         controls: { addEventListener: () => undefined, removeEventListener: () => undefined },
-      });
+        setFromNormalAndCoplanarPoint(n: THREE.Vector3, p: THREE.Vector3) {
+          plane.normal.copy(n);
+          plane.helper.position.copy(p);
+        },
+      };
+      planes.set(id, plane);
       return id;
     },
   };
