@@ -124,6 +124,17 @@ export class ViewerEngine {
       selectMaterialDefinition: { color: new THREE.Color("#e8a33d"), opacity: 1, transparent: false, renderedFaces: 0 },
     });
     this.highlighter.zoomToSelection = false;
+    // Highlighter.updateColors awaits a forced Fragments update (forceUpdateFinish). With section
+    // planes that fence can wait for a worker FINISH that only comes once the camera moves, so
+    // highlightByID / clear (selection, viewpoints, clash, 4D, comparison) hung. The forced
+    // update still runs after every colour change, it is just not awaited.
+    this.highlighter.config.autoUpdateFragments = false;
+    const updateColors = this.highlighter.updateColors.bind(this.highlighter);
+    this.highlighter.updateColors = async () => {
+      await updateColors();
+      // Settled like the Highlighter's own call: dispose() clears the highlights after Fragments is gone.
+      if (this.fragments.initialized) this.fragments.core.update(true).catch(() => undefined);
+    };
     this.highlighter.events.select!.onHighlight.add((map) => void this.emitSelection(map));
     this.highlighter.events.select!.onClear.add(() => this.onSelect(null));
   }
