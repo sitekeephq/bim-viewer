@@ -118,5 +118,37 @@ or `<ViewerCanvas workerUrl="..." />`. The default is
 npm install
 npm run typecheck
 npm test
+npm run test:e2e
 npm run build
+```
+
+`npm test` is Vitest: units for tools, engine (stubbed That Open), React HUD,
+scan / IoT and simulation painting.
+
+`npm run test:e2e` starts the playground (`npm run playground`, a host wired
+like the CDE Viewer page) and runs Playwright against real Fragments built from
+the IFC fixtures in `e2e/fixtures/ifc` (`npm run fixtures` rebuilds them after a
+Fragments upgrade). Specs check what is drawn (canvas pixels), not only engine
+state: loading and federation, selection and properties, sections, measurements,
+navigation (orbit / walk / plan), BCF viewpoints across a reload, comparison /
+4D / clash colours, remount and extension lifecycle, and the scan viewer.
+
+`section-performance.spec.ts` loads one building as three discipline models
+(`scripts/build-discipline-frags.mjs`) and checks the section box with fills:
+cut meshes hold only their real segments and frames stay close to frames
+without a box. The viewer compacts That Open's fixed-size section buffers before
+each frame (`src/tools/section-meshes.ts`); without it every cut line drew
+100 000 instances and multi-discipline section boxes stalled.
+
+Projects follow the CDE harness: `chromium` (desktop), `iphone` (iPhone 13 in
+Chromium, `mobile-*.spec.ts`: "⋯ Diğer" menu, touch measuring, joystick,
+bottom sheets, no sideways scroll) and `safari` (WebKit iPhone smoke, CI only;
+locally `E2E_SAFARI=1`). `e2e/support/fixtures.ts` fails a test on page errors,
+console errors, failed requests and WebGL context loss. Known viewer bugs are
+kept as `test.fail` so a fix shows up as an unexpected pass.
+
+```bash
+npx playwright install chromium webkit
+npm run test:e2e
+npx playwright test -c e2e/playwright.config.ts --project=iphone
 ```

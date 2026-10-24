@@ -20,6 +20,10 @@ export interface MeasureEntry {
 
 type AnyMeasurement = OBF.LengthMeasurement | OBF.AreaMeasurement | OBF.AngleMeasurement | OBF.VolumeMeasurement;
 
+/** Shorter lengths / smaller areas are two clicks on one point (no hover in between), not measurements. */
+export const MIN_LENGTH = 1e-3;
+export const MIN_AREA = 1e-6;
+
 const v3 = (v: Vec3) => new THREE.Vector3(v[0], v[1], v[2]);
 const arr = (v: THREE.Vector3): Vec3 => [v.x, v.y, v.z];
 
@@ -57,6 +61,8 @@ export class MeasureTool {
       m.list.onItemDeleted.add(this.changed);
       m.list.onCleared.add(this.changed);
     }
+    this.length.list.onItemAdded.add(this.dropEmptyLength);
+    this.area.list.onItemAdded.add(this.dropEmptyArea);
     this.length.units = "m";
     this.area.units = "m2";
     this.angle.units = "deg";
@@ -68,6 +74,15 @@ export class MeasureTool {
   }
 
   private changed = () => this.onChange();
+
+  // Removed after the add event: the measurement components finish their own handlers first.
+  private dropEmptyLength = (line: OBF.Line) => {
+    if (line.distance() < MIN_LENGTH) queueMicrotask(() => this.length.list.delete(line));
+  };
+
+  private dropEmptyArea = (area: OBF.Area) => {
+    if (!(area.rawValue >= MIN_AREA)) queueMicrotask(() => this.area.list.delete(area));
+  };
 
   setActive(kind: Exclude<MeasureKind, "volume"> | null) {
     this.clearTap();
@@ -119,7 +134,7 @@ export class MeasureTool {
       this.tapMarker.renderOrder = 12;
       this.tapMarker.position.copy(point);
       this.engine.world.scene.three.add(this.tapMarker);
-    } else {
+    } else if (point.distanceTo(this.tapStart) >= MIN_LENGTH) {
       this.length.list.add(new OBF.Line(this.tapStart, point));
       this.clearTap();
     }
@@ -224,6 +239,8 @@ export class MeasureTool {
         m.list.onCleared.remove(this.changed);
         m.enabled = false;
       }
+      this.length.list.onItemAdded.remove(this.dropEmptyLength);
+      this.area.list.onItemAdded.remove(this.dropEmptyArea);
     } catch {
       // Already disposed with the viewer's components.
     }
