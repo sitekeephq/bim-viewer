@@ -32,13 +32,14 @@ export interface IotSamples {
   data: Record<string, Record<string, Array<number | null>>>;
 }
 
-let iotApiBase =
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_IOT_API) ||
-  "http://localhost:8080/iot";
+/** Default live API: the host's VITE_IOT_API, else none (no request to a guessed localhost port). */
+const ENV_IOT_API: string | undefined = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_IOT_API) || undefined;
 
-/** Host apps can point IoT at live API or keep localhost fallback. */
-export function configureIotApi(baseUrl: string) {
-  iotApiBase = baseUrl.replace(/\/$/, "");
+let iotApiBase: string | null = ENV_IOT_API ? ENV_IOT_API.replace(/\/$/, "") : null;
+
+/** Points IoT at a live API; null uses the bundled sample data only. */
+export function configureIotApi(baseUrl: string | null) {
+  iotApiBase = baseUrl ? baseUrl.replace(/\/$/, "") : null;
 }
 
 /** Autodesk / demo: 281+000.75 → 281+001.00 (25 m adım, km atlama yok). */
@@ -64,9 +65,6 @@ export function sensorsUseTrackChainage(sensors: Array<{ trackOrder?: number; km
   return false;
 }
 
-function iotBase() {
-  return iotApiBase;
-}
 
 async function fetchJson(url: string) {
   const response = await fetch(url);
@@ -81,16 +79,19 @@ export class IoTDataView {
   source: "live" | "sample" | "none" = "none";
 
   async init() {
+    const base = iotApiBase;
     try {
+      if (!base) throw new Error("IoT live API is not configured (configureIotApi / VITE_IOT_API)");
       const [sensors, channels, samples] = await Promise.all([
-        fetchJson(`${iotBase()}/sensors`),
-        fetchJson(`${iotBase()}/channels`),
-        fetchJson(`${iotBase()}/samples`),
+        fetchJson(`${base}/sensors`),
+        fetchJson(`${base}/channels`),
+        fetchJson(`${base}/samples`),
       ]);
       this._apply(sensors, channels, samples);
       this.source = "live";
     } catch (liveError) {
-      console.warn("IoT live API yok, örnek demiryolu verisi kullanılıyor:", liveError);
+      // Only a configured API that fails is worth a warning; no API at all is the normal demo case.
+      if (base) console.warn("IoT live API yok, örnek demiryolu verisi kullanılıyor:", liveError);
       const bundled = await fetchJson("/iot-sample.json");
       this._apply(bundled.sensors, bundled.channels, bundled.samples);
       this.source = "sample";

@@ -23,8 +23,9 @@ jobs:
           scope: "@7dimensions-project"
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run test:coverage
       - run: npm run build
+      - run: npm run test:package
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
         env:

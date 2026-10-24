@@ -12,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   configureScanAssets();
-  configureIotApi("http://localhost:8080/iot");
+  configureIotApi(null);
 });
 
 describe("ScanViewer", () => {

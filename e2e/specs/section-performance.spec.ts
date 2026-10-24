@@ -153,3 +153,39 @@ test("selecting while the section box is on settles (no forced-update fence hang
   }
   await expect(page.getByRole("complementary", { name: "Özellikler" })).toBeVisible();
 });
+
+test("changing the box or opening a viewpoint with a box reuses the faces (no shader recompiles)", async ({ page }) => {
+  await page.evaluate(() => {
+    const proto = WebGL2RenderingContext.prototype as unknown as { linkProgram(...args: unknown[]): void };
+    const link = proto.linkProgram;
+    (window as unknown as { __links: number }).__links = 0;
+    proto.linkProgram = function (...args: unknown[]) {
+      (window as unknown as { __links: number }).__links++;
+      return link.apply(this, args);
+    };
+  });
+  await openBox(page);
+  const faces = await page.evaluate(() => window.__tools!.sections.planes.map((p) => p.id));
+  const links = () => page.evaluate(() => (window as unknown as { __links: number }).__links);
+  await frameTimes(page, 5);
+  const before = await links();
+
+  await page.evaluate(() => {
+    const sections = window.__tools!.sections;
+    const box = sections.box!.clone();
+    box.max.y -= 1.5;
+    sections.setBox(box);
+  });
+  await waitForSections(page, 6);
+  const viewpoint = await page.evaluate(() => window.__viewer!.viewpoint());
+  await page.evaluate((vp) => {
+    const box = vp.sections!.box!;
+    return window.__viewer!.applyViewpoint({ ...vp, sections: { planes: [], box: { min: box.min, max: [box.max[0]!, box.max[1]! - 1, box.max[2]!] } } });
+  }, JSON.parse(JSON.stringify(viewpoint)));
+  await waitForSections(page, 6);
+  await frameTimes(page, 5);
+
+  expect(await page.evaluate(() => window.__tools!.sections.planes.map((p) => p.id))).toEqual(faces);
+  expect(await links()).toBe(before);
+  expectCompact(await sectionStats(page));
+});

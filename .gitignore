@@ -8,3 +8,4 @@ playground/public/fragments-worker.mjs
 playground/public/models/
 playground/public/scans/
 playground/public/iot-sample.json
+coverage/

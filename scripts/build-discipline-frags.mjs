@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { IfcImporter } from "@thatopen/fragments";
+import { writeFixtureStamp } from "./fixture-stamp.mjs";
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "..");
@@ -166,3 +167,4 @@ for (const [salt, discipline] of ["mimari", "statik", "mekanik"].entries()) {
   writeFileSync(dest, bytes);
   console.log(`disc-${discipline} → ${path.relative(root, dest)} (${bytes.byteLength} bytes)`);
 }
+writeFixtureStamp(outDir);

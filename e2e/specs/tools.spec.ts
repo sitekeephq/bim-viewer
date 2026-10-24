@@ -17,6 +17,35 @@ async function clickAt(page: Page, point: Vec3) {
   await page.waitForTimeout(150);
 }
 
+/** Clicks made so far by the measurement being drawn (That Open keeps them in `_temp`). */
+function drawnClicks(page: Page, kind: "area" | "angle") {
+  return page.evaluate((k) => {
+    const measure = window.__tools!.measure as unknown as {
+      area: { _temp: { area: { points: Iterable<unknown> } }; list: { size: number } };
+      angle: { _temp: { clickCount: number }; list: { size: number } };
+    };
+    return k === "area" ? [...measure.area._temp.area.points].length : measure.angle._temp.clickCount + measure.angle.list.size * 3;
+  }, kind);
+}
+
+/**
+ * Like clickAt, but checks that the tool took the click: on a slow (software-rendered) CI the
+ * snap pick under the cursor can still be pending, and that click places nothing.
+ */
+async function clickCounted(page: Page, point: Vec3, kind: "area" | "angle") {
+  const before = await drawnClicks(page, kind);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await clickAt(page, point);
+    try {
+      await expect.poll(() => drawnClicks(page, kind), { timeout: 2_000 }).toBe(before + 1);
+      return;
+    } catch {
+      // Not taken: hover again and repeat the click.
+    }
+  }
+  throw new Error(`${kind} click at ${point.join(", ")} was not taken`);
+}
+
 // Points 0,4–0,5 m inside the wall face; the measurement tools snap them to the edges and corners
 // (exact corners sit on the silhouette, where the pick can miss the face).
 const LEFT: Vec3 = [0.4, 0.2, 1.5];
@@ -108,12 +137,12 @@ test("area closes with Enter and angle takes three clicks", async ({ page }) => 
   await page.getByRole("button", { name: "Ölçü", exact: true }).click();
   const panel = page.locator(".vt-panel[aria-label='Ölçü']");
   await panel.getByRole("radio", { name: "Alan" }).click();
-  for (const p of [BOTTOM_LEFT, BOTTOM_RIGHT, TOP_RIGHT, TOP_LEFT]) await clickAt(page, p);
+  for (const p of [BOTTOM_LEFT, BOTTOM_RIGHT, TOP_RIGHT, TOP_LEFT]) await clickCounted(page, p, "area");
   await page.keyboard.press("Enter");
   await expect(panel.locator(".vt-value")).toHaveText(["15,00 m²"]);
 
   await panel.getByRole("radio", { name: "Açı" }).click();
-  for (const p of [BOTTOM_LEFT, BOTTOM_RIGHT, TOP_RIGHT]) await clickAt(page, p);
+  for (const p of [BOTTOM_LEFT, BOTTOM_RIGHT, TOP_RIGHT]) await clickCounted(page, p, "angle");
   await expect(panel.locator(".vt-value")).toHaveText(["15,00 m²", "90,00°"]);
   await panel.getByRole("button", { name: "Tümünü Sil" }).click();
   await expect(panel.locator(".vt-value")).toHaveCount(0);

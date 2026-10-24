@@ -103,6 +103,15 @@ The worker URL is configurable through `ViewerEngine.create(..., { workerUrl })`
 or `<ViewerCanvas workerUrl="..." />`. The default is
 `/fragments-worker.mjs`.
 
+## Scan viewer and IoT
+
+`ScanViewer` reads its LAS / güzergah assets from `configureScanAssets(base)`
+(default `/scans`). IoT data comes from a live API only when the host sets one,
+with `configureIotApi("https://…/iot")` or the `VITE_IOT_API` build variable;
+otherwise the bundled `/iot-sample.json` is used without any network call.
+(Until 0.3.1 the default was `http://localhost:8080/iot`; hosts that relied on
+it must now configure it.)
+
 ## Boundaries
 
 - Shared: renderer lifecycle, fragments, camera, selection, viewpoints,

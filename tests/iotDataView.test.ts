@@ -26,7 +26,7 @@ const payload = {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  configureIotApi("http://localhost:8080/iot");
+  configureIotApi(null);
 });
 
 describe("IoTDataView", () => {
@@ -51,7 +51,22 @@ describe("IoTDataView", () => {
     expect(sensors[1]?.name).toMatch(/281\+/);
   });
 
-  it("falls back to the bundled sample when live fetch fails", async () => {
+  it("uses the bundled sample without any network call when no live API is configured", async () => {
+    const fetch = vi.fn(async (url: string) =>
+      String(url) === "/iot-sample.json" ? new Response(JSON.stringify(payload)) : new Response(null, { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const view = new IoTDataView();
+    await view.init();
+    expect(view.source).toBe("sample");
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/iot-sample.json"]);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("falls back to the bundled sample when a configured live API fails", async () => {
+    configureIotApi("http://iot.test/");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {

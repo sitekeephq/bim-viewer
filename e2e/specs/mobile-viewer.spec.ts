@@ -116,6 +116,8 @@ test("the section box from the menu shows its count and the sheet can remove it"
 });
 
 test("the section box over three disciplines stays compact and fluid on the phone", async ({ page }) => {
+  // Four models + box + fills: CI's two-core software renderer needs more than the default minute.
+  test.setTimeout(120_000);
   await loadModels(page, "Disiplinler", "wall,mimari,statik,mekanik");
   const idle = await frameTimes(page);
   await choose(page, /Kesit Kutusu/);
@@ -171,9 +173,7 @@ test("plan from the menu lists the storey in the sheet", async ({ page }) => {
   await expect(panel).toHaveCount(0);
 });
 
-test("the scan viewer fits the phone screen", async ({ page, diagnostics }) => {
-  // The IoT client tries its default live API (localhost:8080) before the sample data.
-  diagnostics.allow(/ERR_CONNECTION_REFUSED/);
+test("the scan viewer fits the phone screen", async ({ page }) => {
   await page.goto("/scan.html");
   await expect(page.getByText("Katmanlar")).toBeVisible({ timeout: 45_000 });
   await expect(page.getByRole("toolbar", { name: "IoT araçları" })).toBeVisible();
