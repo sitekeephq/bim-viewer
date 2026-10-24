@@ -30,7 +30,21 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: true
-      - if: startsWith(github.ref, 'refs/tags/v')
-        run: npm publish
+      # Tag vX.Y.Z publishes package.json's X.Y.Z. Already on GitHub Packages (e.g. published by
+      # hand from the tagged commit) → skipped, so the tag run still ends green.
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "::notice::$name@$version is already published; skipping npm publish."
+          else
+            npm publish
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
