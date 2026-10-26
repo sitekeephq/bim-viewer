@@ -43,6 +43,22 @@ export interface ScanLayerHost {
   onFragmentsUpdate?: () => void;
 }
 
+/**
+ * The sphere That Open's OrthoPerspectiveCamera.fit(meshes, offset) frames for one box: it starts its bounds at
+ * min = +MAX_VALUE and max = +MIN_VALUE (the smallest positive number, not -MAX_VALUE), so on an axis
+ * where the box lies below zero the bounds reach out to the origin; radius = largest side × offset.
+ * The scan view's starting distance has always come from this; a sphere around the box alone put the
+ * camera far too close (0.3.1 – 0.4.1).
+ */
+export function thatOpenFitSphere(center: THREE.Vector3, size: THREE.Vector3, offset: number): THREE.Sphere {
+  const box = new THREE.Box3().setFromCenterAndSize(center, size);
+  const min = new THREE.Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE).min(box.min);
+  const max = new THREE.Vector3(Number.MIN_VALUE, Number.MIN_VALUE, Number.MIN_VALUE).max(box.max);
+  const bounds = new THREE.Box3(min, max);
+  const extent = bounds.getSize(new THREE.Vector3());
+  return new THREE.Sphere(bounds.getCenter(new THREE.Vector3()), Math.max(extent.x, extent.y, extent.z) * offset);
+}
+
 export function createScanLayers(host: ScanLayerHost) {
   const {
     world,
@@ -199,10 +215,9 @@ export function createScanLayers(host: ScanLayerHost) {
         const focus = railFocusBox(mesh);
         fitCameraToRail(cam?.controls, focus);
         if (typeof cam?.controls?.fitToSphere === "function") {
-          // Same framing as camera.fit([36 × 6 × 36 box], 2.2), without its transition: the animated
-          // fit's "rest" event sometimes never came and the loading overlay stayed up for good.
-          const sphere = new THREE.Sphere(focus.getCenter(new THREE.Vector3()), 36 * 2.2);
-          await cam.controls.fitToSphere(sphere, false);
+          // The framing of camera.fit([36 × 6 × 36 box], 2.2), without its transition (the animated
+          // fit's "rest" event sometimes never came and the loading overlay stayed up for good).
+          await cam.controls.fitToSphere(thatOpenFitSphere(focus.getCenter(new THREE.Vector3()), new THREE.Vector3(36, 6, 36), 2.2), false);
         }
         captureCameraPose(cam?.controls, true);
         setScanIfcStatus("ready");

@@ -171,6 +171,9 @@ function LineChart({
   );
 }
 
+/** Stacking of the IoT panels: the one opened or touched last is on top. */
+let topPanelZ = 2200;
+
 function PanelShell({
   view,
   children,
@@ -185,13 +188,17 @@ function PanelShell({
   const dragRef = React.useRef<{ dx: number; dy: number } | null>(null);
   const resizeRef = React.useRef<{ right: number; startX: number; startWidth: number; top: number } | null>(null);
   const [position, setPosition] = React.useState<{ left: number; top: number } | null>(null);
+  const [zIndex, setZIndex] = React.useState(() => ++topPanelZ);
+  const bringToFront = () => setZIndex((z) => (z === topPanelZ ? z : ++topPanelZ));
   // The km chart reads best wide, like the earlier viewer's docking panel.
   const [width, setWidth] = React.useState(view === "range" ? Math.min(1000, window.innerWidth - 24) : view === "detail" ? 420 : 350);
   const defaultPlacement: Record<IotPanelView, React.CSSProperties> = {
     list: { top: 70, left: 270 },
-    detail: { top: 70, right: 18 },
+    // Left of the viewer's tool column on the right (Yörünge, Plan, Kesit …).
+    detail: { top: 70, right: 112 },
     heatmap: { top: 96, left: 640 },
-    range: { top: 90, left: "max(12px, calc(50% - 500px))" },
+    // At the bottom, so the list's and the detail's headers stay in reach above it.
+    range: { bottom: 64, left: "max(12px, calc(50% - 500px))" },
   };
 
   React.useEffect(() => {
@@ -254,16 +261,18 @@ function PanelShell({
     <div
       ref={panelRef}
       data-iot-panel="true"
+      onPointerDownCapture={bringToFront}
       style={{
         position: "fixed",
         ...defaultPlacement[view],
         top: position?.top ?? defaultPlacement[view].top,
         left: position?.left ?? defaultPlacement[view].left,
         right: position ? undefined : defaultPlacement[view].right,
+        bottom: position ? undefined : defaultPlacement[view].bottom,
         width,
         maxWidth: "calc(100vw - 24px)",
         maxHeight: "calc(100vh - 100px)",
-        zIndex: 2200,
+        zIndex,
         overflow: "hidden",
         border: "1px solid color-mix(in srgb, var(--text-muted) 45%, transparent)",
         borderRadius: 12,
@@ -371,16 +380,52 @@ const selectStyle: React.CSSProperties = {
   color: "var(--text)",
 };
 
+/** Rows rendered at once; the 25 cm survey has thousands of points, the search narrows them. */
+const LIST_PAGE = 200;
+
 function SensorListView(props: Props) {
-  const groups = props.sensors.reduce<Record<string, IotSensor[]>>((result, sensor) => {
+  const [query, setQuery] = React.useState("");
+  const [onlyOff, setOnlyOff] = React.useState(false);
+  const [shown, setShown] = React.useState(LIST_PAGE);
+  const needle = query.trim().replace(",", ".").replace(/\s+/g, "");
+  const matching = props.sensors.filter(
+    (sensor) => (!needle || sensor.name.replace(/\s+/g, "").includes(needle)) && (!onlyOff || sensor.status !== "ok"),
+  );
+  const visible = matching.slice(0, shown);
+  const selected = matching.find((sensor) => sensor.id === props.selectedId);
+  if (selected && !visible.includes(selected)) visible.unshift(selected);
+  const groups = visible.reduce<Record<string, IotSensor[]>>((result, sensor) => {
     (result[`Km ${sensor.groupName}`] ||= []).push(sensor);
     return result;
   }, {});
+  const dense = props.sensors.length > LIST_PAGE;
   return (
     <div>
       <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
         Bir ölçüm noktasına tıklayın; konuma odaklanıp detay grafiklerini açar.
       </p>
+      {dense && (
+        <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+          <input
+            type="search"
+            aria-label="Km ara"
+            placeholder="Km ara (ör. 281+100)"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setShown(LIST_PAGE);
+            }}
+            style={{ ...selectStyle, marginTop: 0 }}
+          />
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+            <input type="checkbox" checked={onlyOff} onChange={(event) => setOnlyOff(event.target.checked)} />
+            Yalnız limit dışı ({props.sensors.filter((s) => s.status !== "ok").length})
+          </label>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            {matching.length} / {props.sensors.length} ölçüm noktası
+          </div>
+        </div>
+      )}
       {Object.entries(groups).map(([group, sensors]) => (
         <section key={group} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 5 }}>{group}</div>
@@ -418,6 +463,11 @@ function SensorListView(props: Props) {
           ))}
         </section>
       ))}
+      {matching.length > shown && (
+        <button type="button" onClick={() => setShown((n) => n + LIST_PAGE)} style={{ ...selectStyle, cursor: "pointer" }}>
+          {Math.min(LIST_PAGE, matching.length - shown)} nokta daha göster
+        </button>
+      )}
     </div>
   );
 }

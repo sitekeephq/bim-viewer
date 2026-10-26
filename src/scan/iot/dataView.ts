@@ -42,6 +42,17 @@ export function configureIotApi(baseUrl: string | null) {
   iotApiBase = baseUrl ? baseUrl.replace(/\/$/, "") : null;
 }
 
+const ENV_IOT_PROFILE: string | undefined = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_IOT_PROFILE) || undefined;
+let iotProfileUrl: string | null = ENV_IOT_PROFILE || null;
+
+/**
+ * The host's 25 cm survey file (IotProfile JSON, e.g. "/iot-profile.json"), or VITE_IOT_PROFILE.
+ * Opt-in like the live API: without it nothing is requested (no 404 for hosts that have none).
+ */
+export function configureIotProfile(url: string | null) {
+  iotProfileUrl = url || null;
+}
+
 /** Autodesk / demo: 281+000.75 → 281+001.00 (25 m adım, km atlama yok). */
 export function formatRailChainageLabel(baseKm: number, trackOrder: number, stepMetres = 25): string {
   const along = Math.max(0, (trackOrder - 1) * stepMetres);
@@ -124,16 +135,17 @@ export class IoTDataView {
   sensors = new Map<string, IotSensorMeta>();
   channels = new Map<string, IotChannel>();
   samples: IotSamples | null = null;
-  source: "live" | "sample" | "none" = "none";
+  /** live: the IoT API; survey: the bundled 25 cm survey (iot-profile.json); sample: the 8-point demo. */
+  source: "live" | "survey" | "sample" | "none" = "none";
   private profilePromise: Promise<IotProfile | null> | null = null;
 
   /**
-   * The dense survey for the km range chart, loaded once on first use: the live API's /profile,
-   * else the bundled /iot-profile.json. Null when neither exists (the chart then uses the sensors).
+   * The dense survey, loaded once: the live API's /profile, else the host's survey file
+   * (configureIotProfile / VITE_IOT_PROFILE). Null when neither is set or answers.
    */
   loadProfile(): Promise<IotProfile | null> {
     this.profilePromise ??= (async () => {
-      const urls = [...(iotApiBase ? [`${iotApiBase}/profile`] : []), "/iot-profile.json"];
+      const urls = [...(iotApiBase ? [`${iotApiBase}/profile`] : []), ...(iotProfileUrl ? [iotProfileUrl] : [])];
       for (const url of urls) {
         try {
           const profile = (await fetchJson(url)) as IotProfile;
@@ -161,10 +173,43 @@ export class IoTDataView {
     } catch (liveError) {
       // Only a configured API that fails is worth a warning; no API at all is the normal demo case.
       if (base) console.warn("IoT live API yok, örnek demiryolu verisi kullanılıyor:", liveError);
+      // The host's survey makes every measured position a point (as the earlier viewer did); the
+      // 8-point demo only when there is none.
+      const profile = await this.loadProfile();
+      if (profile) {
+        this._applyProfile(profile);
+        this.source = "survey";
+        return;
+      }
       const bundled = await fetchJson("/iot-sample.json");
       this._apply(bundled.sensors, bundled.channels, bundled.samples);
       this.source = "sample";
     }
+  }
+
+  /**
+   * Survey → points: one per measured position (km + metre), its series one value per survey year
+   * (dated mid-year, like the demo's). Positions missing in a year get null for that year.
+   */
+  private _applyProfile(profile: IotProfile) {
+    const years = Object.keys(profile.years).map(Number).sort((a, b) => a - b);
+    const sensors: Record<string, IotSensorMeta> = {};
+    const data: Record<string, Record<string, Array<number | null>>> = {};
+    const channelIds = Object.keys(profile.channels);
+    years.forEach((year, yearIndex) => {
+      const rows = profile.years[String(year)]!;
+      for (let i = 0; i < rows.km.length; i++) {
+        const km = rows.km[i]!;
+        const metre = rows.metre[i]!;
+        const id = `km-${km}-m-${metre.toFixed(2).padStart(6, "0")}`;
+        if (!sensors[id]) {
+          sensors[id] = { name: formatKmMetre(km, metre), groupName: String(km), km, metre, location: { x: 0, y: 0, z: 0 } };
+          data[id] = Object.fromEntries(channelIds.map((c) => [c, Array<number | null>(years.length).fill(null)]));
+        }
+        for (const c of channelIds) data[id]![c]![yearIndex] = rows.values[c]?.[i] ?? null;
+      }
+    });
+    this._apply(sensors, profile.channels, { timestamps: years.map((y) => `${y}-06-15T00:00:00Z`), data });
   }
 
   private _apply(sensors: Record<string, IotSensorMeta>, channels: Record<string, IotChannel>, samples: any) {

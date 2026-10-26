@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  configureIotProfile,
   IoTDataView,
   configureIotApi,
   placeSensorsOnBox,
@@ -63,6 +64,34 @@ describe("IoTDataView", () => {
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/iot-sample.json"]);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("makes every surveyed position a point with one value per year when the host has a survey", async () => {
+    const profile = {
+      channels: { gauge: { name: "Ekartman", unit: "mm", limits: { AL: { min: -7, max: 25 } } } },
+      years: {
+        "2023": { km: [281, 281, 281], metre: [66, 66.25, 66.5], values: { gauge: [1, 2, 30] } },
+        "2024": { km: [281, 281], metre: [66, 66.25], values: { gauge: [4, 5] } },
+      },
+    };
+    const fetch = vi.fn(async (url: string) =>
+      String(url) === "/iot-profile.json" ? new Response(JSON.stringify(profile)) : new Response(null, { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    configureIotProfile("/iot-profile.json");
+    const view = new IoTDataView();
+    await view.init();
+    configureIotProfile(null);
+    expect(view.source).toBe("survey");
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/iot-profile.json"]);
+    expect(view.sensors.size).toBe(3);
+    expect(view.samples?.timestamps.map((t) => t.getFullYear())).toEqual([2023, 2024]);
+    expect(view.samples?.data["km-281-m-066.50"]?.gauge).toEqual([30, null]);
+    const path = [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }];
+    const sensors = view.toSceneSensors({ min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 1, z: 1 } }, "gauge", 2023, true, path);
+    expect(sensors.map((s) => s.name)).toEqual(["281+066.00", "281+066.25", "281+066.50"]);
+    expect(sensors.map((s) => s.status)).toEqual(["ok", "ok", "warn"]);
+    expect(sensors[2]?.series).toEqual([30, null]);
   });
 
   it("falls back to the bundled sample when a configured live API fails", async () => {

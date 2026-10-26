@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { configureScanAssets, scanAssetUrl } from "../src/scan/assets";
 import { DEFAULT_SCAN_IFC_OFFSET } from "../src/scan/constants";
 import { ensureScanLights, pointOnTrackPath, railFocusBox } from "../src/scan/layers/ifcMesh";
-import { createIotLayer, iotMarkerRadius, paintIotLayer } from "../src/scan/layers/iotLayer";
+import { createIotLayer, DENSE_IOT_POINTS, iotMarkerRadius, iotSensorIdFromHit, paintIotLayer } from "../src/scan/layers/iotLayer";
 import { createSamplePointCloud } from "../src/scan/layers/pointCloud";
 import { colorFromMeasurement, heatmapLegendStops, heatmapRange, valueToHeatColor } from "../src/scan/layers/trackHeatmap";
 import type { IotSensor } from "../src/scan/types";
@@ -87,5 +87,60 @@ describe("point cloud / IoT layer / heatmap", () => {
   it("interpolates a point on a track path", () => {
     const mid = pointOnTrackPath([new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0)], 0.5);
     expect(mid.x).toBeCloseTo(5);
+  });
+});
+
+describe("scan starting view", () => {
+  it("frames the rail like That Open's OrthoPerspectiveCamera.fit([36 × 6 × 36 box], 2.2)", async () => {
+    const OBC = await import("@thatopen/components");
+    const { thatOpenFitSphere } = await import("../src/scan/createScanLayers");
+    // Below zero on y and z (as the survey lies): camera.fit's bounds reach out to the origin there.
+    for (const center of [new THREE.Vector3(120, -4, -350), new THREE.Vector3(40, 3, 60)]) {
+      let framed: THREE.Sphere | null = null;
+      const helper = new THREE.Mesh(new THREE.BoxGeometry(36, 6, 36));
+      helper.position.copy(center);
+      helper.updateMatrixWorld(true);
+      const camera = {
+        enabled: true,
+        components: { get: () => ({ initialized: false, list: new Map() }) },
+        controls: { fitToSphere: async (sphere: THREE.Sphere) => void (framed = sphere) },
+      };
+      await OBC.OrthoPerspectiveCamera.prototype.fit.call(camera as never, [helper], 2.2);
+      const ours = thatOpenFitSphere(center, new THREE.Vector3(36, 6, 36), 2.2);
+      expect(framed).not.toBeNull();
+      expect(ours.center.distanceTo(framed!.center)).toBeLessThan(1e-6);
+      expect(ours.radius).toBeCloseTo(framed!.radius, 6);
+    }
+    // The 0.3.1 – 0.4.1 sphere (box only) put the camera this much closer for a survey below zero.
+    expect(thatOpenFitSphere(new THREE.Vector3(120, -4, -350), new THREE.Vector3(36, 6, 36), 2.2).radius).toBeGreaterThan(36 * 2.2 * 5);
+  });
+});
+
+describe("dense IoT layer (the 25 cm survey)", () => {
+  it("draws thousands of points as one instanced mesh, picks and repaints them by id", () => {
+    const sensors = Array.from({ length: 4001 }, (_, i) =>
+      sensor({ id: `p${i}`, position: [i * 0.25, 0, 0], status: i === 7 ? "alarm" : "ok" }),
+    );
+    const group = createIotLayer(sensors, 0.5);
+    const meshes: THREE.Object3D[] = [];
+    group.traverse((child) => meshes.push(child));
+    // The group and one instanced mesh: no per-point halo or label texture.
+    expect(meshes).toHaveLength(2);
+    const points = group.children[0] as THREE.InstancedMesh;
+    expect(points.isInstancedMesh).toBe(true);
+    expect(points.count).toBe(4001);
+    const color = new THREE.Color();
+    points.getColorAt(7, color);
+    expect(color.getHex()).toBe(0xef4444);
+
+    const raycaster = new THREE.Raycaster(new THREE.Vector3(7 * 0.25, 5, 0), new THREE.Vector3(0, -1, 0));
+    const hit = raycaster.intersectObject(group, true)[0]!;
+    expect(iotSensorIdFromHit(hit)).toBe("p7");
+
+    paintIotLayer(group, [{ ...sensors[7]!, status: "ok" }]);
+    points.getColorAt(7, color);
+    expect(color.getHex()).toBe(0x22c55e);
+    // Just above the threshold it is already one mesh (up to it, the marker test above applies).
+    expect(createIotLayer(sensors.slice(0, DENSE_IOT_POINTS + 1)).children).toHaveLength(1);
   });
 });

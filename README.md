@@ -109,9 +109,11 @@ or `<ViewerCanvas workerUrl="..." />`. The default is
 (default `/scans`). IoT data comes from a live API only when the host sets one,
 with `configureIotApi("https://…/iot")` or the `VITE_IOT_API` build variable;
 otherwise the bundled `/iot-sample.json` is used without any network call.
-The km range chart draws the dense survey (`IotProfile`, one row every 25 cm per
-year) from the API's `/profile` or the host's `/iot-profile.json`; without one it
-falls back to the sensors.
+A host with a dense survey (`IotProfile`: one row every 25 cm per year) sets it with
+`configureIotProfile("/iot-profile.json")` or `VITE_IOT_PROFILE` (or serves it as
+the API's `/profile`): every surveyed position then becomes a point in the list,
+the points layer and the heatmap, and the km range chart draws all of them.
+Without one nothing is requested and the sample's sensors are used.
 (Until 0.3.1 the default was `http://localhost:8080/iot`; hosts that relied on
 it must now configure it.)
 

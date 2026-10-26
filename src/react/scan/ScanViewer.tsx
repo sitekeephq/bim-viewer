@@ -10,6 +10,7 @@ import {
   createScanLayers,
   fitCameraToRail,
   IoTDataView,
+  iotSensorIdFromHit,
   paintIotLayer,
   type HeatmapFilter,
   type IotSensor,
@@ -40,6 +41,13 @@ import { ModelElementPanel } from "./ModelElementPanel.js";
 import { ScanIotToolbar } from "./ScanIotToolbar.js";
 
 const EMPTY_EXTENSIONS: readonly ViewerExtension[] = [];
+
+/** Heatmap and the km chart are the two large tools in the middle: opening one closes the other. */
+const EXCLUSIVE_IOT_PANELS: Partial<Record<IotPanelView, IotPanelView>> = { heatmap: "range", range: "heatmap" };
+
+export function withIotPanel(current: IotPanelView[], view: IotPanelView): IotPanelView[] {
+  return [...current.filter((item) => item !== view && item !== EXCLUSIVE_IOT_PANELS[view]), view];
+}
 
 export interface ScanViewerProps {
   /** Fragment fallback routes when güzergah mesh is unavailable. */
@@ -103,7 +111,7 @@ export function ScanViewer({
   });
 
   const openIotPanel = (view: IotPanelView) => {
-    setIotPanelViews((current) => (current.includes(view) ? current : [...current, view]));
+    setIotPanelViews((current) => (current.includes(view) ? current : withIotPanel(current, view)));
   };
   const closeIotPanel = (view: IotPanelView) => {
     setIotPanelViews((current) => current.filter((item) => item !== view));
@@ -116,7 +124,7 @@ export function ScanViewer({
     setIotPanelViews((current) =>
       current.includes(action as IotPanelView)
         ? current.filter((view) => view !== action)
-        : [...current, action as IotPanelView],
+        : withIotPanel(current, action as IotPanelView),
     );
   };
 
@@ -443,11 +451,9 @@ export function ScanViewer({
       raycaster.setFromCamera(ndc, camera);
       const iotGroup = iotGroupRef.current;
       const sensorHit = iotGroup?.visible
-        ? raycaster
-            .intersectObject(iotGroup, true)
-            .find((intersection) => Boolean(intersection.object.userData.sensorId))
+        ? raycaster.intersectObject(iotGroup, true).find((intersection) => Boolean(iotSensorIdFromHit(intersection)))
         : undefined;
-      const sensorId = sensorHit?.object.userData.sensorId as string | undefined;
+      const sensorId = sensorHit ? iotSensorIdFromHit(sensorHit) : undefined;
       if (sensorId) {
         clearScanSelection();
         focusSensor(sensorId);
