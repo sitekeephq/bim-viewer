@@ -124,7 +124,8 @@ export class IoTDataView {
   sensors = new Map<string, IotSensorMeta>();
   channels = new Map<string, IotChannel>();
   samples: IotSamples | null = null;
-  source: "live" | "sample" | "none" = "none";
+  /** live: the IoT API; survey: the bundled 25 cm survey (iot-profile.json); sample: the 8-point demo. */
+  source: "live" | "survey" | "sample" | "none" = "none";
   private profilePromise: Promise<IotProfile | null> | null = null;
 
   /**
@@ -161,10 +162,43 @@ export class IoTDataView {
     } catch (liveError) {
       // Only a configured API that fails is worth a warning; no API at all is the normal demo case.
       if (base) console.warn("IoT live API yok, örnek demiryolu verisi kullanılıyor:", liveError);
+      // The host's survey makes every measured position a point (as the earlier viewer did); the
+      // 8-point demo only when there is none.
+      const profile = await this.loadProfile();
+      if (profile) {
+        this._applyProfile(profile);
+        this.source = "survey";
+        return;
+      }
       const bundled = await fetchJson("/iot-sample.json");
       this._apply(bundled.sensors, bundled.channels, bundled.samples);
       this.source = "sample";
     }
+  }
+
+  /**
+   * Survey → points: one per measured position (km + metre), its series one value per survey year
+   * (dated mid-year, like the demo's). Positions missing in a year get null for that year.
+   */
+  private _applyProfile(profile: IotProfile) {
+    const years = Object.keys(profile.years).map(Number).sort((a, b) => a - b);
+    const sensors: Record<string, IotSensorMeta> = {};
+    const data: Record<string, Record<string, Array<number | null>>> = {};
+    const channelIds = Object.keys(profile.channels);
+    years.forEach((year, yearIndex) => {
+      const rows = profile.years[String(year)]!;
+      for (let i = 0; i < rows.km.length; i++) {
+        const km = rows.km[i]!;
+        const metre = rows.metre[i]!;
+        const id = `km-${km}-m-${metre.toFixed(2).padStart(6, "0")}`;
+        if (!sensors[id]) {
+          sensors[id] = { name: formatKmMetre(km, metre), groupName: String(km), km, metre, location: { x: 0, y: 0, z: 0 } };
+          data[id] = Object.fromEntries(channelIds.map((c) => [c, Array<number | null>(years.length).fill(null)]));
+        }
+        for (const c of channelIds) data[id]![c]![yearIndex] = rows.values[c]?.[i] ?? null;
+      }
+    });
+    this._apply(sensors, profile.channels, { timestamps: years.map((y) => `${y}-06-15T00:00:00Z`), data });
   }
 
   private _apply(sensors: Record<string, IotSensorMeta>, channels: Record<string, IotChannel>, samples: any) {

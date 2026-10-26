@@ -37,10 +37,50 @@ export function iotMarkerRadius(box?: THREE.Box3 | null): number {
   return THREE.MathUtils.clamp(span * 0.008, 0.35, 16);
 }
 
+/**
+ * Above this many points (the 25 cm survey: thousands) each point is one instance of a single mesh,
+ * coloured by status, without the per-point halo and label texture (thousands of canvases would
+ * stall the GPU). The value of a point is in the list and the detail panel.
+ */
+export const DENSE_IOT_POINTS = 200;
+
+/** The instanced mesh of a dense layer; userData.sensorIds maps instanceId → sensor id. */
+const DENSE_MESH = "iot-points";
+
+function createDenseIotLayer(group: THREE.Group, sensors: IotSensor[], radius: number) {
+  const mesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(radius, 10, 8),
+    new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.05, emissive: 0xffffff, emissiveIntensity: 0.25 }),
+    sensors.length,
+  );
+  mesh.name = DENSE_MESH;
+  const matrix = new THREE.Matrix4();
+  sensors.forEach((sensor, i) => {
+    mesh.setMatrixAt(i, matrix.makeTranslation(...sensor.position));
+    mesh.setColorAt(i, new THREE.Color(STATUS_COLOR[sensor.status]));
+  });
+  mesh.userData.sensorIds = sensors.map((s) => s.id);
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  group.add(mesh);
+  return group;
+}
+
+/** The sensor id under a raycast hit on the IoT layer (a marker, or an instance of the dense mesh). */
+export function iotSensorIdFromHit(hit: THREE.Intersection): string | undefined {
+  const { object } = hit;
+  if (object.userData.sensorId) return object.userData.sensorId as string;
+  const ids = object.userData.sensorIds as string[] | undefined;
+  return ids && hit.instanceId != null ? ids[hit.instanceId] : undefined;
+}
+
 export function createIotLayer(sensors: IotSensor[], markerRadius = 0.35): THREE.Group {
   const group = new THREE.Group();
   group.name = "iot-extension";
   const r = markerRadius;
+  // Dense points sit 25 cm apart along the track: smaller markers keep them apart.
+  if (sensors.length > DENSE_IOT_POINTS) return createDenseIotLayer(group, sensors, Math.min(r * 0.5, 0.6));
 
   for (const sensor of sensors) {
     const color = STATUS_COLOR[sensor.status];
@@ -92,6 +132,17 @@ export function createIotLayer(sensors: IotSensor[], markerRadius = 0.35): THREE
 }
 
 export function paintIotLayer(group: THREE.Group, sensors: IotSensor[]) {
+  const dense = group.getObjectByName(DENSE_MESH) as THREE.InstancedMesh | undefined;
+  if (dense) {
+    const index = new Map((dense.userData.sensorIds as string[]).map((id, i) => [id, i]));
+    const color = new THREE.Color();
+    for (const sensor of sensors) {
+      const i = index.get(sensor.id);
+      if (i !== undefined) dense.setColorAt(i, color.setHex(STATUS_COLOR[sensor.status]));
+    }
+    if (dense.instanceColor) dense.instanceColor.needsUpdate = true;
+    return;
+  }
   for (const sensor of sensors) {
     const color = STATUS_COLOR[sensor.status];
     const marker = group.getObjectByName(sensor.id) as THREE.Mesh | undefined;
