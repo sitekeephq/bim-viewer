@@ -54,6 +54,22 @@ export function trackChainageMetres(trackOrder: number, stepMetres = 25): number
   return Math.max(0, (trackOrder - 1) * stepMetres);
 }
 
+/**
+ * A typed range bound of the km chart → the chart's position axis, or null when empty/unreadable.
+ * Plain numbers are positions as they are ("100", "12,5"). "km+…" text is read like the axis
+ * labels: with track chainage the inverse of formatRailChainageLabel ("281+001.00" → 100 hat m);
+ * otherwise kilometre and metres ("281+050.5" → 281050.5 m).
+ */
+export function parseChainageInput(text: string, trackChainage: boolean): number | null {
+  const t = text.trim().replace(",", ".");
+  if (!t) return null;
+  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  const m = /^(\d+)\s*\+\s*(\d+)(?:\.(\d{1,2}))?$/.exec(t);
+  if (!m) return null;
+  if (trackChainage) return Number(m[2]) * 100 + Number((m[3] ?? "0").padEnd(2, "0"));
+  return Number(m[1]) * 1000 + Number(`${m[2]}.${m[3] ?? "0"}`);
+}
+
 export function sensorsUseTrackChainage(sensors: Array<{ trackOrder?: number; km?: number; metre?: number }>, stepMetres = 25) {
   const ordered = sensors.filter((s) => s.trackOrder != null).sort((a, b) => (a.trackOrder ?? 0) - (b.trackOrder ?? 0));
   if (ordered.length < 2 || ordered.length !== sensors.length) return false;
@@ -66,6 +82,38 @@ export function sensorsUseTrackChainage(sensors: Array<{ trackOrder?: number; km
 }
 
 
+/**
+ * Dense track geometry survey for the km range chart: one row per measured position (every 25 cm),
+ * per survey year. Rows of a year share index across km, metre and every channel's values.
+ */
+export interface IotProfile {
+  channels: Record<string, IotChannel>;
+  years: Record<string, { km: number[]; metre: number[]; values: Record<string, Array<number | null>> }>;
+}
+
+/** Track position in metres from km and metres ("281+066.25" → 281066.25). */
+export function chainagePosition(km: number, metre: number): number {
+  return km * 1000 + metre;
+}
+
+/** "281+066.25": km, then metres with three integer digits and two decimals. */
+export function formatKmMetre(km: number, metre: number): string {
+  return `${km}+${metre.toFixed(2).padStart(6, "0")}`;
+}
+
+/** A typed km / metre pair of the range chart → a track position; null when both are empty or unreadable. */
+export function kmMetreInput(kmText: string, metreText: string, defaultKm: number): number | null {
+  const num = (t: string) => {
+    const v = t.trim().replace(",", ".");
+    return v === "" ? undefined : /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
+  };
+  const km = num(kmText);
+  const metre = num(metreText);
+  if (km === undefined && metre === undefined) return null;
+  if (Number.isNaN(km) || Number.isNaN(metre)) return null;
+  return chainagePosition(km ?? defaultKm, metre ?? 0);
+}
+
 async function fetchJson(url: string) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url} → ${response.status}`);
@@ -77,6 +125,27 @@ export class IoTDataView {
   channels = new Map<string, IotChannel>();
   samples: IotSamples | null = null;
   source: "live" | "sample" | "none" = "none";
+  private profilePromise: Promise<IotProfile | null> | null = null;
+
+  /**
+   * The dense survey for the km range chart, loaded once on first use: the live API's /profile,
+   * else the bundled /iot-profile.json. Null when neither exists (the chart then uses the sensors).
+   */
+  loadProfile(): Promise<IotProfile | null> {
+    this.profilePromise ??= (async () => {
+      const urls = [...(iotApiBase ? [`${iotApiBase}/profile`] : []), "/iot-profile.json"];
+      for (const url of urls) {
+        try {
+          const profile = (await fetchJson(url)) as IotProfile;
+          if (profile?.years && Object.keys(profile.years).length) return profile;
+        } catch {
+          /* next source */
+        }
+      }
+      return null;
+    })();
+    return this.profilePromise;
+  }
 
   async init() {
     const base = iotApiBase;

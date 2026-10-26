@@ -9,7 +9,7 @@ import { ZoomHud } from "../src/react/scan/ZoomHud";
 import { IoTExtensionPanel } from "../src/react/scan/IoTExtensionPanel";
 import type { ScanElementSelection } from "../src/scan/selection/scanSelection";
 import type { IotSensor } from "../src/scan/types";
-import type { IoTDataView } from "../src/scan/iot/dataView";
+import type { IoTDataView, IotProfile } from "../src/scan/iot/dataView";
 
 afterEach(() => cleanup());
 
@@ -31,8 +31,9 @@ const sensor = (over: Partial<IotSensor> = {}): IotSensor => ({
   ...over,
 });
 
-function dataView(): IoTDataView {
+function dataView(profile: IotProfile | null = null): IoTDataView {
   return {
+    loadProfile: async () => profile,
     sensors: new Map([["s1", { name: "Nokta A", location: { x: 0, y: 0, z: 0 }, km: 281, metre: 0 }]]),
     channels: new Map([["cant", { name: "Cant", unit: "mm", limits: { AL: { min: -5, max: 5 } } }]]),
     samples: {
@@ -234,5 +235,60 @@ describe("IoTExtensionPanel", () => {
     rerender(<IoTExtensionPanel {...base} view="range" />);
     expect(screen.getByText("Km Aralığı Grafiği")).toBeTruthy();
     expect(screen.getByText(/ölçüm noktası/)).toBeTruthy();
+  });
+
+  it("km range over the 25 cm survey: km + metre bounds, cleared fields, other channels and years", async () => {
+    // 281+066.00 … 281+090.00 every 25 cm (97 rows), two survey years.
+    const metre = Array.from({ length: 97 }, (_, i) => 66 + i * 0.25);
+    const km = metre.map(() => 281);
+    const profile: IotProfile = {
+      channels: {
+        gauge: { name: "Ekartman", unit: "mm", limits: { AL: { min: -7, max: 25 } } },
+        alignment_l: { name: "Alignment (Sol)", unit: "mm" },
+      },
+      years: {
+        "2023": { km, metre, values: { gauge: metre.map(() => 1), alignment_l: metre.map(() => 2) } },
+        "2024": { km: km.slice(0, 10), metre: metre.slice(0, 10), values: { gauge: metre.slice(0, 10).map(() => 3) } },
+      },
+    };
+    render(<IoTExtensionPanel {...base} dataView={dataView(profile)} channelId="gauge" year={2023} view="range" />);
+    expect(await screen.findByText(/97 ölçüm noktası · 281\+066\.00 – 281\+090\.00/)).toBeTruthy();
+    // 10 m: 66.00 … 76.00, both ends included.
+    fireEvent.change(screen.getByLabelText("Km Başlangıç m"), { target: { value: "66" } });
+    fireEvent.change(screen.getByLabelText("Km Bitiş km"), { target: { value: "281" } });
+    fireEvent.change(screen.getByLabelText("Km Bitiş m"), { target: { value: "76" } });
+    expect(screen.getByText(/41 ölçüm noktası · 281\+066\.00 – 281\+076\.00/)).toBeTruthy();
+    // The metre field can be emptied (no 0 coming back) and takes a decimal comma.
+    const mFrom = screen.getByLabelText("Km Başlangıç m") as HTMLInputElement;
+    fireEvent.change(mFrom, { target: { value: "" } });
+    expect(mFrom.value).toBe("");
+    expect(screen.getByText(/41 ölçüm noktası · 281\+066\.00/)).toBeTruthy();
+    fireEvent.change(mFrom, { target: { value: "75,5" } });
+    expect(screen.getByText(/3 ölçüm noktası/)).toBeTruthy();
+    fireEvent.change(mFrom, { target: { value: "x" } });
+    expect(mFrom.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(screen.getByRole("combobox", { name: /Yıl/ }), { target: { value: "2024" } });
+    expect(screen.getByText(/10 ölçüm noktası/)).toBeTruthy();
+  });
+
+  it("km range: bounds can be cleared and typed as km, the points follow", () => {
+    render(<IoTExtensionPanel {...base} view="range" />);
+    const from = screen.getByLabelText("Başlangıç") as HTMLInputElement;
+    // Empty fields cover every point; the first / last point show as placeholders.
+    expect(from.value).toBe("");
+    expect(from.placeholder).toBe("Nokta A");
+    expect(screen.getByText("2 ölçüm noktası")).toBeTruthy();
+    fireEvent.change(from, { target: { value: "281+010" } });
+    expect(screen.getByText("1 ölçüm noktası")).toBeTruthy();
+    fireEvent.change(from, { target: { value: "" } });
+    expect(from.value).toBe("");
+    expect(screen.getByText("2 ölçüm noktası")).toBeTruthy();
+    // Unreadable text is marked and ignored; reversed bounds still select the range between them.
+    fireEvent.change(from, { target: { value: "abc" } });
+    expect(from.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("2 ölçüm noktası")).toBeTruthy();
+    fireEvent.change(from, { target: { value: "281030" } });
+    fireEvent.change(screen.getByLabelText("Bitiş"), { target: { value: "281+020" } });
+    expect(screen.getByText("1 ölçüm noktası")).toBeTruthy();
   });
 });

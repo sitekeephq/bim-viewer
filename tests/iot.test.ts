@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatRailChainageLabel,
+  parseChainageInput,
   sensorsUseTrackChainage,
   trackChainageMetres,
 } from "../src/scan/iot/dataView";
@@ -36,6 +37,20 @@ describe("rail chainage helpers", () => {
     expect(trackChainageMetres(1)).toBe(0);
     expect(trackChainageMetres(5)).toBe(100);
     expect(trackChainageMetres(0)).toBe(0);
+  });
+
+  it("reads typed range bounds as numbers or in the axis' km format", () => {
+    // Track chainage: the inverse of the axis label.
+    expect(parseChainageInput("281+001.00", true)).toBe(trackChainageMetres(5));
+    expect(parseChainageInput("281+000.25", true)).toBe(trackChainageMetres(2));
+    expect(parseChainageInput(" 281 + 001.5 ", true)).toBe(150);
+    // Kilometre + metres.
+    expect(parseChainageInput("281+050.5", false)).toBe(281050.5);
+    // Plain positions, a decimal comma, and the empty / unreadable cases.
+    expect(parseChainageInput("100", true)).toBe(100);
+    expect(parseChainageInput("12,5", false)).toBe(12.5);
+    expect(parseChainageInput("", true)).toBeNull();
+    expect(parseChainageInput("km 281", true)).toBeNull();
   });
 
   it("detects when km/metre labels skip more than a step", () => {

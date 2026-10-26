@@ -1,12 +1,17 @@
 import React from "react";
 import {
   IoTDataView,
+  chainagePosition,
+  formatKmMetre,
   formatRailChainageLabel,
+  kmMetreInput,
+  parseChainageInput,
   sensorsUseTrackChainage,
   trackChainageMetres,
 } from "../../scan/iot/dataView.js";
 import type { IotSensor } from "../../scan/types.js";
-import type { IotChannel, LimitBand } from "../../scan/iot/dataView.js";
+import type { IotChannel, IotProfile, LimitBand } from "../../scan/iot/dataView.js";
+import { KmProfileChart } from "./KmProfileChart.js";
 import { heatmapLegendStops, heatmapRange, type HeatmapFilter } from "../../scan/layers/trackHeatmap.js";
 
 export type IotPanelView = "list" | "detail" | "heatmap" | "range";
@@ -79,14 +84,17 @@ function LineChart({
   labels,
   limits,
   color = "#38bdf8",
+  height = 174,
 }: {
   values: Array<number | null>;
   labels: string[];
   limits?: { AL?: LimitBand; IL?: LimitBand; IAL?: LimitBand };
   color?: string;
+  height?: number;
 }) {
   const width = 440;
-  const height = 174;
+  // A dense survey (hundreds of positions) reads as a line: no point markers, a thinner stroke.
+  const dense = values.length > 120;
   const left = 38;
   const right = 12;
   const top = 12;
@@ -105,7 +113,7 @@ function LineChart({
   ] as const;
   const labelIndexes = labels.length <= 8
     ? labels.map((_, index) => index)
-    : [0, Math.floor((labels.length - 1) / 2), labels.length - 1];
+    : [0, 1, 2, 3, 4].map((step) => Math.round((step / 4) * (labels.length - 1)));
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", display: "block" }}>
@@ -140,14 +148,22 @@ function LineChart({
           </g>
         );
       })}
-      <path d={path} fill="none" stroke={color} strokeWidth="2" />
-      {values.map((value, index) => value === null ? null : (
+      <path d={path} fill="none" stroke={color} strokeWidth={dense ? 1 : 2} strokeLinejoin="round" />
+      {!dense && values.map((value, index) => value === null ? null : (
         <circle key={index} cx={x(index)} cy={y(value)} r="3" fill={color}>
           <title>{labels[index]}: {value}</title>
         </circle>
       ))}
       {labelIndexes.map((index) => (
-        <text key={index} x={x(index)} y={height - 7} textAnchor="middle" fill="var(--text-muted)" fontSize="9">
+        <text
+          key={index}
+          x={x(index)}
+          y={height - 7}
+          // The end labels stay inside the chart ("281+500.00" was cut at the right edge).
+          textAnchor={labels.length > 1 && index === 0 ? "start" : labels.length > 1 && index === labels.length - 1 ? "end" : "middle"}
+          fill="var(--text-muted)"
+          fontSize="9"
+        >
           {labels[index]}
         </text>
       ))}
@@ -169,12 +185,13 @@ function PanelShell({
   const dragRef = React.useRef<{ dx: number; dy: number } | null>(null);
   const resizeRef = React.useRef<{ right: number; startX: number; startWidth: number; top: number } | null>(null);
   const [position, setPosition] = React.useState<{ left: number; top: number } | null>(null);
-  const [width, setWidth] = React.useState(view === "range" ? 540 : view === "detail" ? 420 : 350);
+  // The km chart reads best wide, like the earlier viewer's docking panel.
+  const [width, setWidth] = React.useState(view === "range" ? Math.min(1000, window.innerWidth - 24) : view === "detail" ? 420 : 350);
   const defaultPlacement: Record<IotPanelView, React.CSSProperties> = {
     list: { top: 70, left: 270 },
     detail: { top: 70, right: 18 },
     heatmap: { top: 96, left: 640 },
-    range: { top: 130, left: "calc(50% - 270px)" },
+    range: { top: 90, left: "max(12px, calc(50% - 500px))" },
   };
 
   React.useEffect(() => {
@@ -209,7 +226,7 @@ function PanelShell({
     const move = (event: PointerEvent) => {
       const resize = resizeRef.current;
       if (resize) {
-        const maxWidth = Math.min(760, window.innerWidth - 24);
+        const maxWidth = Math.min(view === "range" ? 1400 : 760, window.innerWidth - 24);
         const nextWidth = Math.max(300, Math.min(maxWidth, resize.startWidth + resize.startX - event.clientX));
         setWidth(nextWidth);
         setPosition({ left: resize.right - nextWidth, top: resize.top });
@@ -489,6 +506,117 @@ function HeatmapView(props: Props) {
 }
 
 function RangeChartView(props: Props) {
+  // The dense survey (every 25 cm) when the data has one; until it loads, or without it, the sensors.
+  const [profile, setProfile] = React.useState<IotProfile | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    void props.dataView?.loadProfile().then((p) => live && setProfile(p));
+    return () => {
+      live = false;
+    };
+  }, [props.dataView]);
+  return profile ? <ProfileRangeChart profile={profile} channelId={props.channelId} year={props.year} /> : <SensorRangeChart {...props} />;
+}
+
+const kmInputStyle: React.CSSProperties = { ...selectStyle, marginTop: 0, width: 76 };
+const kmRowStyle: React.CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, fontSize: 12 };
+
+/**
+ * The km range chart of the earlier IoT viewer: "Km Başlangıç [281] + [66] — Km Bitiş [282] + [66]",
+ * channel and year, then every position measured (every 25 cm) in between. The fields start at the
+ * survey's first and last position and can be cleared: an empty pair means "from the first / to the
+ * last position", an empty km takes the survey's first km.
+ */
+function ProfileRangeChart({ profile, channelId, year }: { profile: IotProfile; channelId: string; year: number }) {
+  const years = Object.keys(profile.years).map(Number).sort((a, b) => a - b);
+  const channelIds = CHANNEL_ORDER.filter((id) => profile.channels[id]).concat(
+    Object.keys(profile.channels).filter((id) => !CHANNEL_ORDER.includes(id)),
+  );
+  const [selectedYear, setSelectedYear] = React.useState(years.includes(year) ? year : years[years.length - 1]!);
+  const [selectedChannel, setSelectedChannel] = React.useState(profile.channels[channelId] ? channelId : channelIds[0]!);
+  const rows = profile.years[String(selectedYear)]!;
+  const lastIndex = rows.km.length - 1;
+  const firstKm = rows.km[0] ?? 0;
+  const [kmFrom, setKmFrom] = React.useState(String(firstKm));
+  const [mFrom, setMFrom] = React.useState(String(rows.metre[0] ?? 0));
+  const [kmTo, setKmTo] = React.useState(String(rows.km[lastIndex] ?? firstKm));
+  const [mTo, setMTo] = React.useState(String(rows.metre[lastIndex] ?? 0));
+  const from = kmMetreInput(kmFrom, mFrom, firstKm);
+  const to = kmMetreInput(kmTo, mTo, firstKm);
+  const invalid = (km: string, m: string) => (km.trim() !== "" || m.trim() !== "") && kmMetreInput(km, m, firstKm) == null;
+  const fromBad = invalid(kmFrom, mFrom);
+  const toBad = invalid(kmTo, mTo);
+  const lo = from != null && to != null ? Math.min(from, to) : from;
+  const hi = from != null && to != null ? Math.max(from, to) : to;
+  const { values, labels } = React.useMemo(() => {
+    const series = rows.values[selectedChannel] ?? [];
+    const out = { values: [] as Array<number | null>, labels: [] as string[] };
+    for (let i = 0; i < rows.km.length; i++) {
+      const position = chainagePosition(rows.km[i]!, rows.metre[i]!);
+      if ((lo != null && position < lo) || (hi != null && position > hi)) continue;
+      out.values.push(series[i] ?? null);
+      out.labels.push(formatKmMetre(rows.km[i]!, rows.metre[i]!));
+    }
+    return out;
+  }, [rows, selectedChannel, lo, hi]);
+  const channel = profile.channels[selectedChannel];
+  const field = (label: string, value: string, set: (v: string) => void, bad: boolean, mode: "numeric" | "decimal") => (
+    <input
+      type="text"
+      inputMode={mode}
+      aria-label={label}
+      aria-invalid={bad || undefined}
+      value={value}
+      onChange={(event) => set(event.target.value)}
+      style={{ ...kmInputStyle, ...(bad ? { borderColor: "var(--danger, #d64545)" } : {}) }}
+    />
+  );
+
+  return (
+    <div>
+      <div style={kmRowStyle}>
+        <span>Km Başlangıç:</span>
+        {field("Km Başlangıç km", kmFrom, setKmFrom, fromBad, "numeric")}
+        <span>+</span>
+        {field("Km Başlangıç m", mFrom, setMFrom, fromBad, "decimal")}
+        <span style={{ color: "var(--text-muted)", margin: "0 4px" }}>—</span>
+        <span>Km Bitiş:</span>
+        {field("Km Bitiş km", kmTo, setKmTo, toBad, "numeric")}
+        <span>+</span>
+        {field("Km Bitiş m", mTo, setMTo, toBad, "decimal")}
+      </div>
+      <div style={{ ...kmRowStyle, marginTop: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>Kanal:
+          <select value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value)} style={{ ...selectStyle, marginTop: 0, width: "auto" }}>
+            {channelIds.map((id) => <option key={id} value={id}>{profile.channels[id]!.name}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>Yıl:
+          <select value={selectedYear} onChange={(event) => setSelectedYear(Number(event.target.value))} style={{ ...selectStyle, marginTop: 0, width: "auto" }}>
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          {values.length ? `${values.length} ölçüm noktası · ${labels[0]} – ${labels[labels.length - 1]}` : "Seçilen aralıkta ölçüm yok."}
+        </span>
+      </div>
+      {(fromBad || toBad) && (
+        <div style={{ marginTop: 6, fontSize: 11, color: "var(--danger, #d64545)" }}>Km ve metreyi sayı olarak yazın (ör. 281 + 66,25).</div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <KmProfileChart
+          labels={labels}
+          values={values}
+          title={`${channel?.name || selectedChannel} (${channel?.unit || ""}) — ${selectedYear}`}
+          unit={channel?.unit || ""}
+          limits={channel?.limits}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SensorRangeChart(props: Props) {
   const useTrackChainage = sensorsUseTrackChainage(props.sensors);
   const baseKm = props.sensors.reduce((min, sensor) => Math.min(min, sensor.km ?? min), props.sensors[0]?.km ?? 0);
   const chainageOf = (sensor: IotSensor) =>
@@ -499,32 +627,55 @@ function RangeChartView(props: Props) {
     useTrackChainage && sensor.trackOrder != null
       ? formatRailChainageLabel(baseKm, sensor.trackOrder)
       : sensor.name;
-  const positions = props.sensors.map(chainageOf);
-  const minPosition = positions.length ? Math.min(...positions) : 0;
-  const maxPosition = positions.length ? Math.max(...positions) : 0;
-  const [from, setFrom] = React.useState(minPosition);
-  const [to, setTo] = React.useState(maxPosition);
+  const ordered = [...props.sensors].sort((a, b) => chainageOf(a) - chainageOf(b));
+  // Bounds stay as typed text: an empty field means "from the first / to the last point", so the
+  // field can be cleared and the range follows sensors that load later.
+  const [fromText, setFromText] = React.useState("");
+  const [toText, setToText] = React.useState("");
+  const fromValue = parseChainageInput(fromText, useTrackChainage);
+  const toValue = parseChainageInput(toText, useTrackChainage);
+  const fromInvalid = fromText.trim() !== "" && fromValue == null;
+  const toInvalid = toText.trim() !== "" && toValue == null;
+  const lo = fromValue != null && toValue != null ? Math.min(fromValue, toValue) : fromValue;
+  const hi = fromValue != null && toValue != null ? Math.max(fromValue, toValue) : toValue;
   const channels = props.dataView ? sortChannelEntries(props.dataView.channels) : [];
   const years = Array.from(new Set(props.dataView?.samples?.timestamps.map((timestamp) => timestamp.getFullYear()) || [props.year]));
-  const points = props.sensors
-    .filter((sensor) => {
-      const position = chainageOf(sensor);
-      return position >= from && position <= to;
-    })
-    .sort((a, b) => chainageOf(a) - chainageOf(b));
+  const points = ordered.filter((sensor) => {
+    const position = chainageOf(sensor);
+    return (lo == null || position >= lo) && (hi == null || position <= hi);
+  });
+  const first = ordered[0];
+  const last = ordered[ordered.length - 1];
+  const boundInput = (text: string, set: (v: string) => void, invalid: boolean, hint: IotSensor | undefined, label: string) => (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={label}
+      aria-invalid={invalid || undefined}
+      value={text}
+      placeholder={hint ? labelOf(hint) : ""}
+      onChange={(event) => set(event.target.value)}
+      style={{ ...selectStyle, ...(invalid ? { borderColor: "var(--danger, #d64545)" } : {}) }}
+    />
+  );
   const channel = props.dataView?.channels.get(props.channelId);
 
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <label style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          {useTrackChainage ? "Başlangıç (hat m)" : "Başlangıç (metre)"}
-          <input type="number" value={from} onChange={(event) => setFrom(Number(event.target.value))} style={selectStyle} />
+          {useTrackChainage ? "Başlangıç (km ya da hat m)" : "Başlangıç (km ya da metre)"}
+          {boundInput(fromText, setFromText, fromInvalid, first, "Başlangıç")}
         </label>
         <label style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          {useTrackChainage ? "Bitiş (hat m)" : "Bitiş (metre)"}
-          <input type="number" value={to} onChange={(event) => setTo(Number(event.target.value))} style={selectStyle} />
+          {useTrackChainage ? "Bitiş (km ya da hat m)" : "Bitiş (km ya da metre)"}
+          {boundInput(toText, setToText, toInvalid, last, "Bitiş")}
         </label>
+        {(fromInvalid || toInvalid) && (
+          <div style={{ gridColumn: "1 / -1", fontSize: 11, color: "var(--danger, #d64545)" }}>
+            Km "{first ? labelOf(first) : "281+000.00"}" biçiminde ya da sayı olarak yazın.
+          </div>
+        )}
         <label style={{ fontSize: 11, color: "var(--text-muted)" }}>Kanal
           <select value={props.channelId} onChange={(event) => props.onChannel(event.target.value)} style={selectStyle}>
             {channels.map(([id, item]) => <option key={id} value={id}>{item.name}</option>)}
