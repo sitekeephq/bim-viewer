@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  configureIotProfile,
   IoTDataView,
   configureIotApi,
   placeSensorsOnBox,
@@ -60,8 +61,7 @@ describe("IoTDataView", () => {
     const view = new IoTDataView();
     await view.init();
     expect(view.source).toBe("sample");
-    // Only the host's own files: its survey (absent here), then the demo.
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/iot-profile.json", "/iot-sample.json"]);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/iot-sample.json"]);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -78,8 +78,10 @@ describe("IoTDataView", () => {
       String(url) === "/iot-profile.json" ? new Response(JSON.stringify(profile)) : new Response(null, { status: 404 }),
     );
     vi.stubGlobal("fetch", fetch);
+    configureIotProfile("/iot-profile.json");
     const view = new IoTDataView();
     await view.init();
+    configureIotProfile(null);
     expect(view.source).toBe("survey");
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/iot-profile.json"]);
     expect(view.sensors.size).toBe(3);

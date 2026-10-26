@@ -42,6 +42,17 @@ export function configureIotApi(baseUrl: string | null) {
   iotApiBase = baseUrl ? baseUrl.replace(/\/$/, "") : null;
 }
 
+const ENV_IOT_PROFILE: string | undefined = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_IOT_PROFILE) || undefined;
+let iotProfileUrl: string | null = ENV_IOT_PROFILE || null;
+
+/**
+ * The host's 25 cm survey file (IotProfile JSON, e.g. "/iot-profile.json"), or VITE_IOT_PROFILE.
+ * Opt-in like the live API: without it nothing is requested (no 404 for hosts that have none).
+ */
+export function configureIotProfile(url: string | null) {
+  iotProfileUrl = url || null;
+}
+
 /** Autodesk / demo: 281+000.75 → 281+001.00 (25 m adım, km atlama yok). */
 export function formatRailChainageLabel(baseKm: number, trackOrder: number, stepMetres = 25): string {
   const along = Math.max(0, (trackOrder - 1) * stepMetres);
@@ -129,12 +140,12 @@ export class IoTDataView {
   private profilePromise: Promise<IotProfile | null> | null = null;
 
   /**
-   * The dense survey for the km range chart, loaded once on first use: the live API's /profile,
-   * else the bundled /iot-profile.json. Null when neither exists (the chart then uses the sensors).
+   * The dense survey, loaded once: the live API's /profile, else the host's survey file
+   * (configureIotProfile / VITE_IOT_PROFILE). Null when neither is set or answers.
    */
   loadProfile(): Promise<IotProfile | null> {
     this.profilePromise ??= (async () => {
-      const urls = [...(iotApiBase ? [`${iotApiBase}/profile`] : []), "/iot-profile.json"];
+      const urls = [...(iotApiBase ? [`${iotApiBase}/profile`] : []), ...(iotProfileUrl ? [iotProfileUrl] : [])];
       for (const url of urls) {
         try {
           const profile = (await fetchJson(url)) as IotProfile;
