@@ -1,6 +1,6 @@
 {
   "name": "@7dimensions-project/bim-viewer",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Shared BIM viewer engine and React integration for 7Dimensions products",
   "repository": {
     "type": "git",
@@ -63,6 +63,7 @@
     "@thatopen/components-front": "3.4.5",
     "@thatopen/fragments": "3.4.8",
     "camera-controls": "3.1.2",
+    "chart.js": "4.4.1",
     "three": "0.186.1"
   },
   "devDependencies": {
