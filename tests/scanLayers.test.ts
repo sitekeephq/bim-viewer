@@ -89,3 +89,29 @@ describe("point cloud / IoT layer / heatmap", () => {
     expect(mid.x).toBeCloseTo(5);
   });
 });
+
+describe("scan starting view", () => {
+  it("frames the rail like That Open's OrthoPerspectiveCamera.fit([36 × 6 × 36 box], 2.2)", async () => {
+    const OBC = await import("@thatopen/components");
+    const { thatOpenFitSphere } = await import("../src/scan/createScanLayers");
+    // Below zero on y and z (as the survey lies): camera.fit's bounds reach out to the origin there.
+    for (const center of [new THREE.Vector3(120, -4, -350), new THREE.Vector3(40, 3, 60)]) {
+      let framed: THREE.Sphere | null = null;
+      const helper = new THREE.Mesh(new THREE.BoxGeometry(36, 6, 36));
+      helper.position.copy(center);
+      helper.updateMatrixWorld(true);
+      const camera = {
+        enabled: true,
+        components: { get: () => ({ initialized: false, list: new Map() }) },
+        controls: { fitToSphere: async (sphere: THREE.Sphere) => void (framed = sphere) },
+      };
+      await OBC.OrthoPerspectiveCamera.prototype.fit.call(camera as never, [helper], 2.2);
+      const ours = thatOpenFitSphere(center, new THREE.Vector3(36, 6, 36), 2.2);
+      expect(framed).not.toBeNull();
+      expect(ours.center.distanceTo(framed!.center)).toBeLessThan(1e-6);
+      expect(ours.radius).toBeCloseTo(framed!.radius, 6);
+    }
+    // The 0.3.1 – 0.4.1 sphere (box only) put the camera this much closer for a survey below zero.
+    expect(thatOpenFitSphere(new THREE.Vector3(120, -4, -350), new THREE.Vector3(36, 6, 36), 2.2).radius).toBeGreaterThan(36 * 2.2 * 5);
+  });
+});
