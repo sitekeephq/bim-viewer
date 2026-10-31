@@ -134,7 +134,7 @@ export function fakeModel(opts: {
     getSection: async () => {
       throw new Error("no section");
     },
-    setVisible: async () => undefined,
+    setVisible: async (_ids?: Iterable<number>, _visible?: boolean): Promise<void> => {},
     resetVisible: async () => undefined,
     setColor: async () => undefined,
     resetColor: async () => undefined,
@@ -153,7 +153,10 @@ export function makeEngineStub(models: ReturnType<typeof fakeModel>[] = []) {
   const area = fakeMeasurement();
   const angle = fakeMeasurement();
   const volume = fakeMeasurement();
-  const hider = { set: async () => undefined, isolate: async () => undefined };
+  const hider = {
+    set: async (_visible?: boolean, _map?: unknown): Promise<void> => {},
+    isolate: async () => undefined,
+  };
   const styler = {
     world: null as unknown,
     styles: new Map(),

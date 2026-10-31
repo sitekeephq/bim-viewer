@@ -14,13 +14,13 @@ describe("GuidCache and sim painting", () => {
   it("hides only the elements that have not started, then reveals the ones that start", async () => {
     const model = fakeModel({ id: "arch", guids: { a: 1, b: 2, c: 3 }, localIds: [1, 2, 3] });
     const seen: { ids: number[] | undefined; visible: boolean }[] = [];
-    model.setVisible = async (ids, visible) => {
-      seen.push({ ids: ids ? [...ids] : undefined, visible });
+    model.setVisible = async (ids?: Iterable<number>, visible?: boolean) => {
+      seen.push({ ids: ids ? [...ids] : undefined, visible: !!visible });
     };
     const { engine, hider } = makeEngineStub([model]);
     const shownAll: boolean[] = [];
-    hider.set = async (visible: boolean, map?: unknown) => {
-      if (map === undefined) shownAll.push(visible);
+    hider.set = async (visible?: boolean, map?: unknown) => {
+      if (map === undefined && visible !== undefined) shownAll.push(visible);
     };
     const cache = new GuidCache();
     const frame = {
