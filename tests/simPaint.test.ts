@@ -11,6 +11,38 @@ describe("GuidCache and sim painting", () => {
     await expect(cache.allIds("arch", model)).resolves.toEqual([1, 2, 3]);
   });
 
+  it("hides only the elements that have not started, then reveals the ones that start", async () => {
+    const model = fakeModel({ id: "arch", guids: { a: 1, b: 2, c: 3 }, localIds: [1, 2, 3] });
+    const seen: { ids: number[] | undefined; visible: boolean }[] = [];
+    model.setVisible = async (ids, visible) => {
+      seen.push({ ids: ids ? [...ids] : undefined, visible });
+    };
+    const { engine, hider } = makeEngineStub([model]);
+    const shownAll: boolean[] = [];
+    hider.set = async (visible: boolean, map?: unknown) => {
+      if (map === undefined) shownAll.push(visible);
+    };
+    const cache = new GuidCache();
+    const frame = {
+      hideNotStarted: true,
+      late: [] as string[],
+      inProgress: new Map<number, string[]>(),
+      fadeUnlinked: false,
+      linked: new Set(["a", "b", "c"]),
+    };
+    await paintSim(engine, cache, { ...frame, notStarted: ["b", "c"] });
+    expect(shownAll).toEqual([]);
+    expect(seen).toEqual([{ ids: [2, 3], visible: false }]);
+    seen.length = 0;
+    await paintSim(engine, cache, { ...frame, notStarted: ["c"], inProgress: new Map([[0, ["b"]]]) });
+    expect(shownAll).toEqual([]);
+    expect(seen).toEqual([{ ids: [2], visible: true }]);
+    await clearSim(engine);
+    seen.length = 0;
+    await paintSim(engine, cache, { ...frame, notStarted: ["a", "b", "c"] });
+    expect(seen).toEqual([{ ids: [1, 2, 3], visible: false }]);
+  });
+
   it("paints a playback frame and a cost heat map", async () => {
     const model = fakeModel({ id: "arch", guids: { a: 1, b: 2, c: 3 }, localIds: [1, 2, 3] });
     const { engine } = makeEngineStub([model]);

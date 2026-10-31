@@ -1,6 +1,6 @@
 {
   "name": "@7dimensions-project/bim-viewer",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Shared BIM viewer engine and React integration for 7Dimensions products",
   "repository": {
     "type": "git",

@@ -76,7 +76,35 @@ async function clearStyles(engine: ViewerEngine) {
   }
 }
 
+/** Local ids hidden by the last "Başlamayanları Gizle" frame, per model. */
+const hiddenNotStarted = new WeakMap<ViewerEngine, Map<string, Set<number>>>();
+
+/**
+ * Hide elements that have not started, and show only the ones that just started.
+ * A full `hider.set(true)` first reveals every element and the scene reloads, then the
+ * hide deletes them again — playback looks like it jumps instead of stepping.
+ */
+async function stepHidden(engine: ViewerEngine, cache: GuidCache, notStarted: string[]): Promise<void> {
+  const prev = hiddenNotStarted.get(engine) ?? new Map<string, Set<number>>();
+  const next = new Map<string, Set<number>>();
+  const jobs: Promise<void>[] = [];
+  for (const [modelId, model] of engine.fragments.list) {
+    const want = new Set(await cache.ids(modelId, model, notStarted));
+    const had = prev.get(modelId) ?? new Set<number>();
+    const hide: number[] = [];
+    const show: number[] = [];
+    for (const id of want) if (!had.has(id)) hide.push(id);
+    for (const id of had) if (!want.has(id)) show.push(id);
+    if (hide.length) jobs.push(model.setVisible(hide, false));
+    if (show.length) jobs.push(model.setVisible(show, true));
+    next.set(modelId, want);
+  }
+  await Promise.all(jobs);
+  hiddenNotStarted.set(engine, next);
+}
+
 export async function clearSim(engine: ViewerEngine): Promise<void> {
+  hiddenNotStarted.delete(engine);
   await clearStyles(engine);
   if (engine.fragments.list.size) await engine.components.get(OBC.Hider).set(true);
   engine.fragments.core.update(true);
@@ -98,24 +126,19 @@ export interface SimPaint {
 /** Paints one playback frame. */
 export async function paintSim(engine: ViewerEngine, cache: GuidCache, p: SimPaint): Promise<void> {
   ensureStyles(engine);
+  if (p.hideNotStarted) await stepHidden(engine, cache, p.notStarted);
+  else {
+    hiddenNotStarted.delete(engine);
+    await engine.components.get(OBC.Hider).set(true);
+  }
   await clearStyles(engine);
-  const hider = engine.components.get(OBC.Hider);
-  await hider.set(true);
-  const hide: OBC.ModelIdMap = {};
-  let hidden = 0;
   for (const [modelId, model] of engine.fragments.list) {
     const paint = async (style: string, guids: string[]) => {
       const ids = await cache.ids(modelId, model, guids);
       if (ids.length) await engine.highlighter.highlightByID(style, { [modelId]: new Set(ids) }, true, false);
       return ids;
     };
-    if (p.hideNotStarted) {
-      const ids = await cache.ids(modelId, model, p.notStarted);
-      if (ids.length) {
-        hide[modelId] = new Set(ids);
-        hidden += ids.length;
-      }
-    } else await paint(S.ghost, p.notStarted);
+    if (!p.hideNotStarted) await paint(S.ghost, p.notStarted);
     await paint(S.late, p.late);
     for (const [i, guids] of p.inProgress) await paint(S.act(i % SIM_PALETTE.length), guids);
     if (p.fadeUnlinked) {
@@ -124,7 +147,6 @@ export async function paintSim(engine: ViewerEngine, cache: GuidCache, p: SimPai
       if (rest.length) await engine.highlighter.highlightByID(S.fade, { [modelId]: new Set(rest) }, true, false);
     }
   }
-  if (hidden) await hider.set(false, hide);
   engine.fragments.core.update(true);
 }
 
