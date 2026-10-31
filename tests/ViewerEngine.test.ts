@@ -1,3 +1,4 @@
+import { LodMode } from "@thatopen/fragments";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { CLASH_COLORS, COMPARE_COLORS, FOURD_COLORS, cssColor } from "../src/core/ViewerEngine";
@@ -97,6 +98,8 @@ describe("ViewerEngine federation and queries", () => {
     );
     await engine.load("m1", "/models/a.frag");
     expect(engine.loadedIds).toEqual(["m1"]);
+    expect(engine.fragments.list.get("m1")!.setLodMode).toHaveBeenCalledWith(LodMode.ALL_GEOMETRY);
+    expect(engine.fragments.core.settings.graphicsQuality).toBeCloseTo(4 / 3);
     await engine.load("m1", "/models/a.frag");
     expect(engine.loadedIds).toEqual(["m1"]);
     engine.setPins([{ position: [1, 2, 3], color: "#f00" }]);

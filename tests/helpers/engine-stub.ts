@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as THREE from "three";
+import { vi } from "vitest";
 import { ViewerEngine } from "../../src/core/ViewerEngine";
 
 type Listener = (...args: unknown[]) => void;
@@ -139,6 +140,7 @@ export function fakeModel(opts: {
     resetColor: async () => undefined,
     setOpacity: async () => undefined,
     resetOpacity: async () => undefined,
+    setLodMode: vi.fn(async () => undefined),
   };
 }
 
@@ -216,6 +218,7 @@ export function makeEngineStub(models: ReturnType<typeof fakeModel>[] = []) {
   const fragments = {
     list,
     core: {
+      settings: { graphicsQuality: 0 },
       update: () => undefined,
       load: async (_buffer: ArrayBuffer, opts: { modelId: string }) => {
         const model = fakeModel({ id: opts.modelId });

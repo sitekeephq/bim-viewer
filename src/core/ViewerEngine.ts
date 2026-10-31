@@ -4,6 +4,7 @@
  */
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
+import { LodMode } from "@thatopen/fragments";
 import * as THREE from "three";
 import { cutBaseUnderOverlaysIn } from "./overlay-groups.js";
 import { rebaseViewpoint, type IssueViewpoint, type Vec3, type ViewerEngineOptions, type ViewpointMeasurement, type ViewpointSections, type ViewpointVisibility, type ViewRule } from "./types.js";
@@ -34,6 +35,14 @@ export interface ViewpointExtrasSource {
 
 /** Largest visibility exception list a viewpoint keeps (the server accepts 20 000). */
 const MAX_VISIBILITY_GUIDS = 20000;
+
+/**
+ * Fragments scales its distance thresholds by `graphicsQuality * -1.5 + 2`.
+ * At 4/3 that factor is 0, so a far camera no longer deletes small cladding
+ * or draws it as wires. The red frame behind it was showing through, then
+ * vanishing again on zoom. Frustum culling stays. 4/3 is not clamped.
+ */
+const SOLID_AT_ANY_DISTANCE = 4 / 3;
 
 export class ViewerEngine {
   readonly components = new OBC.Components();
@@ -149,12 +158,20 @@ export class ViewerEngine {
     if (!res.ok) throw new Error(`Model yüklenemedi (HTTP ${res.status})`);
     const buffer = await res.arrayBuffer();
     onProgress?.(60);
+    this.fragments.core.settings.graphicsQuality = SOLID_AT_ANY_DISTANCE;
     try {
       await this.fragments.core.load(buffer, { modelId, camera: this.world.camera.three });
     } catch (error) {
       // The Fragments worker rejects with a string ("Error: Fragments: Malformed fragments data!").
       const detail = error instanceof Error ? error.message : String(error).replace(/^Error:\s*/, "");
       throw new Error(`Model okunamadı: ${detail}`, { cause: error });
+    }
+    // After the worker has the model. On insert, setLodMode rejects with "Model not found".
+    // Wires are the other way a far view draws the frame over the envelope.
+    const loaded = this.fragments.list.get(modelId);
+    if (loaded) {
+      await loaded.setLodMode(LodMode.ALL_GEOMETRY);
+      this.fragments.core.update(true);
     }
     onProgress?.(100);
   }
