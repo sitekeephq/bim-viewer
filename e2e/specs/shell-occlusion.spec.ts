@@ -33,10 +33,11 @@ async function zoomTo(page: import("@playwright/test").Page, distance: number) {
 
 async function panelColours(page: import("@playwright/test").Page): Promise<Rgba[]> {
   return page.evaluate(async (points) => {
-    const colours = [];
+    const colours: Rgba[] = [];
     for (const point of points) {
       const at = await window.__pg!.screenOf("kabuk", point);
-      colours.push(at ? [...(await window.__pg!.pixel(at.x, at.y))] : [0, 0, 0, 0]);
+      const pixel = at ? await window.__pg!.pixel(at.x, at.y) : null;
+      colours.push(pixel ? [pixel[0], pixel[1], pixel[2], pixel[3]] : [0, 0, 0, 0]);
     }
     return colours;
   }, PANELS);
