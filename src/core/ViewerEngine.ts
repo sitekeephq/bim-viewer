@@ -44,6 +44,9 @@ const MAX_VISIBILITY_GUIDS = 20000;
  */
 const SOLID_AT_ANY_DISTANCE = 4 / 3;
 
+/** How far the ground grid sits under the lowest model (metres). */
+const GRID_GAP = 0.1;
+
 export class ViewerEngine {
   readonly components = new OBC.Components();
   readonly world: World;
@@ -55,6 +58,8 @@ export class ViewerEngine {
   private readonly bcfLines = new THREE.Group();
   /** Highlighter styles used for BCF colouring (cleared on the next viewpoint). */
   private readonly bcfStyles = new Set<string>();
+  /** Ground grid; kept under the models (placeGrid). */
+  private readonly grid: OBC.SimpleGrid;
   /** Import offset of the first aligned model (model sets / clash view). */
   private baseOffset: THREE.Vector3 | null = null;
   private readonly aligned = new Set<string>();
@@ -86,7 +91,7 @@ export class ViewerEngine {
     this.world.renderer = renderer;
     this.world.camera = new OBC.OrthoPerspectiveCamera(this.components);
     this.components.init();
-    this.components.get(OBC.Grids).create(this.world);
+    this.grid = this.components.get(OBC.Grids).create(this.world);
     this.world.scene.three.add(this.pins);
     this.world.scene.three.add(this.clashMarker);
     this.world.scene.three.add(this.bcfLines);
@@ -173,6 +178,7 @@ export class ViewerEngine {
       await loaded.setLodMode(LodMode.ALL_GEOMETRY);
       this.fragments.core.update(true);
     }
+    this.placeGrid();
     onProgress?.(100);
   }
 
@@ -183,7 +189,21 @@ export class ViewerEngine {
     await this.fragments.core.disposeModel(modelId);
     this.aligned.delete(modelId);
     if (!this.aligned.size) this.baseOffset = null;
+    this.placeGrid();
     this.fragments.core.update(true);
+  }
+
+  /**
+   * The grid sits at y = 0, which is usually the ±0.00 slab: its lines then run through the slab
+   * and its section fill and read as tile joints. Keep it just under the lowest loaded model.
+   */
+  private placeGrid() {
+    let bottom = Infinity;
+    for (const model of this.fragments.list.values()) {
+      const box = model.box;
+      if (!box.isEmpty()) bottom = Math.min(bottom, box.min.y);
+    }
+    this.grid.three.position.y = Number.isFinite(bottom) ? Math.min(0, bottom - GRID_GAP) : 0;
   }
 
   async fit(): Promise<void> {
@@ -698,6 +718,7 @@ export class ViewerEngine {
     model.object.position.copy(this.baseOffset.clone().sub(own));
     model.object.updateMatrix();
     model.object.updateMatrixWorld(true);
+    this.placeGrid();
     this.fragments.core.update(true);
   }
 

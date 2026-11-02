@@ -108,6 +108,19 @@ describe("ViewerEngine federation and queries", () => {
     expect(engine.loadedIds).toEqual([]);
   });
 
+  it("keeps the ground grid under the lowest model so it does not cut the ±0.00 slab", async () => {
+    const slab = fakeModel({ id: "slab", box: new THREE.Box3(new THREE.Vector3(-5, -0.3, -5), new THREE.Vector3(5, 0.2, 5)) });
+    const { engine, grid } = makeEngineStub([slab]);
+    engine["placeGrid"]();
+    expect(grid.three.position.y).toBeCloseTo(-0.4);
+    const raised = fakeModel({ id: "raised", box: new THREE.Box3(new THREE.Vector3(0, 30, 0), new THREE.Vector3(1, 31, 1)) });
+    const { engine: other, grid: otherGrid } = makeEngineStub([raised]);
+    other["placeGrid"]();
+    expect(otherGrid.three.position.y).toBe(0);
+    await engine.unload("slab");
+    expect(grid.three.position.y).toBe(0);
+  });
+
   it("turns the worker's string rejection of a broken file into an Error", async () => {
     const { engine } = makeEngineStub([]);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 })));

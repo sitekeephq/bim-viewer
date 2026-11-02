@@ -233,6 +233,7 @@ export function makeEngineStub(models: ReturnType<typeof fakeModel>[] = []) {
     },
     raycast: async () => null,
   };
+  const grid = { three: new THREE.Mesh() };
   const engine = Object.create(ViewerEngine.prototype) as ViewerEngine;
   Object.assign(engine, {
     components,
@@ -250,6 +251,7 @@ export function makeEngineStub(models: ReturnType<typeof fakeModel>[] = []) {
     clashMarker: new THREE.Group(),
     bcfLines: new THREE.Group(),
     bcfStyles: new Set<string>(),
+    grid,
     baseOffset: null,
     aligned: new Set<string>(),
     extras: null,
@@ -266,5 +268,6 @@ export function makeEngineStub(models: ReturnType<typeof fakeModel>[] = []) {
     canvas,
     length,
     scene,
+    grid,
   };
 }
