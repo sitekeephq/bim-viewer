@@ -1,7 +1,7 @@
 /**
  * Package contract check: packs the package as it would be published, installs the tarball into a
  * throw-away consumer and checks what hosts rely on — every `exports` target is in the tarball,
- * the imports 7D CDE uses (and the README examples) typecheck against the packed .d.ts files, the
+ * the imports SiteKeep uses (and the README examples) typecheck against the packed .d.ts files, the
  * copy-assets script copies the Fragments worker, and no source / test folders are shipped.
  * Run after `npm run build` (npm pack runs it again through prepack).
  */
@@ -64,7 +64,7 @@ try {
   );
   writeFileSync(
     path.join(consumer, "consumer.tsx"),
-    `// The 7D CDE web app's imports (apps/web) and the README examples.
+    `// The SiteKeep web app's imports (apps/web) and the README examples.
 import { CLASH_COLORS, COMPARE_COLORS, ViewerEngine, rebaseViewpoint, type IssueViewpoint, type SelectedItem, type ViewerExtension } from "@7dimensions-project/bim-viewer";
 import { PropertiesPanel, ScanViewer, ViewerCanvas, ViewerToolsHud, useViewerTools } from "@7dimensions-project/bim-viewer/react";
 import {

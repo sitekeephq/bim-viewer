@@ -11,6 +11,10 @@ view cube. Product APIs, routing, authentication and branding stay in hosts.
 npm install @7dimensions-project/bim-viewer
 ```
 
+The package is published to GitHub Packages. The host needs an `.npmrc` with
+`@7dimensions-project:registry=https://npm.pkg.github.com` and a `NODE_AUTH_TOKEN`
+that has `read:packages`.
+
 React is a peer dependency. The renderer dependencies are package-owned so the
 viewer can be introduced into products that still contain a legacy That Open
 stack. Aligned hosts deduplicate the same versions during installation.
@@ -18,7 +22,7 @@ stack. Aligned hosts deduplicate the same versions during installation.
 Copy the fragments worker to the host's public directory:
 
 ```bash
-node node_modules/@7dimensions/bim-viewer/scripts/copy-assets.mjs public
+node node_modules/@7dimensions-project/bim-viewer/scripts/copy-assets.mjs public
 ```
 
 ## React
@@ -122,7 +126,7 @@ it must now configure it.)
 - Shared: renderer lifecycle, fragments, camera, selection, viewpoints,
   navigation, generic coloring, sections/measurement/visibility tools, HUD and
   extension contracts.
-- 7D CDE: issue, clash, schedule, comparison and model-set workflows.
+- SiteKeep: issue, clash, schedule, comparison and model-set workflows.
 - OpenBIM: LAS scans, route models, IoT sensors, heatmaps and project data.
 - Never import a consumer's API client, store, route or domain DTO here.
 
