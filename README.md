@@ -170,3 +170,8 @@ npx playwright install chromium webkit
 npm run test:e2e
 npx playwright test -c e2e/playwright.config.ts --project=iphone
 ```
+
+## License
+
+Copyright © 2026 7Dimensions OÜ. Licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(AGPL-3.0-only), like SiteKeep Community.
