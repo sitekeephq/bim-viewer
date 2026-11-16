@@ -1,4 +1,4 @@
-# @7dimensions-project/bim-viewer
+# @sitekeephq/bim-viewer
 
 Shared BIM viewer engine, tools and React HUD for 7Dimensions products. It owns
 the Three.js / That Open lifecycle, Fragments loading, selection, BCF-compatible
@@ -8,11 +8,11 @@ view cube. Product APIs, routing, authentication and branding stay in hosts.
 ## Install
 
 ```bash
-npm install @7dimensions-project/bim-viewer
+npm install @sitekeephq/bim-viewer
 ```
 
 The package is published to GitHub Packages. The host needs an `.npmrc` with
-`@7dimensions-project:registry=https://npm.pkg.github.com` and a `NODE_AUTH_TOKEN`
+`@sitekeephq:registry=https://npm.pkg.github.com` and a `NODE_AUTH_TOKEN`
 that has `read:packages`.
 
 React is a peer dependency. The renderer dependencies are package-owned so the
@@ -22,14 +22,14 @@ stack. Aligned hosts deduplicate the same versions during installation.
 Copy the fragments worker to the host's public directory:
 
 ```bash
-node node_modules/@7dimensions-project/bim-viewer/scripts/copy-assets.mjs public
+node node_modules/@sitekeephq/bim-viewer/scripts/copy-assets.mjs public
 ```
 
 ## React
 
 ```tsx
-import { ViewerCanvas } from "@7dimensions-project/bim-viewer/react";
-import "@7dimensions-project/bim-viewer/styles.css";
+import { ViewerCanvas } from "@sitekeephq/bim-viewer/react";
+import "@sitekeephq/bim-viewer/styles.css";
 
 export function ModelViewer() {
   return (
@@ -46,7 +46,7 @@ export function ModelViewer() {
 to the shared package:
 
 ```ts
-import type { ViewerExtension } from "@7dimensions-project/bim-viewer";
+import type { ViewerExtension } from "@sitekeephq/bim-viewer";
 
 export const issuePins: ViewerExtension = {
   id: "cde-issue-pins",
@@ -69,9 +69,9 @@ package-owned viewpoint/section/measurement types and `rebaseViewpoint`.
 ## Viewer tools and HUD
 
 ```tsx
-import { ViewerToolsHud, useViewerTools } from "@7dimensions-project/bim-viewer/react";
-import { toolMoreItems } from "@7dimensions-project/bim-viewer/tools";
-import "@7dimensions-project/bim-viewer/tools.css";
+import { ViewerToolsHud, useViewerTools } from "@sitekeephq/bim-viewer/react";
+import { toolMoreItems } from "@sitekeephq/bim-viewer/tools";
+import "@sitekeephq/bim-viewer/tools.css";
 
 const viewerTools = useViewerTools(engine, {
   loaded: engine?.loadedIds ?? [],
