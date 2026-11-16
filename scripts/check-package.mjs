@@ -21,7 +21,7 @@ try {
   // 1. Pack and unpack like `npm install <tarball>`.
   const [packed] = JSON.parse(execFileSync("npm", ["pack", "--json", "--pack-destination", work], { cwd: root, encoding: "utf8" }));
   const files = packed.files.map((f) => f.path);
-  const installed = path.join(consumer, "node_modules", "@7dimensions-project", "bim-viewer");
+  const installed = path.join(consumer, "node_modules", "@sitekeephq", "bim-viewer");
   mkdirSync(installed, { recursive: true });
   execFileSync("tar", ["-xzf", path.join(work, packed.filename), "-C", installed, "--strip-components=1"]);
   console.log(`packed ${packed.filename}: ${files.length} files, ${(packed.size / 1024).toFixed(0)} KiB`);
@@ -40,7 +40,7 @@ try {
   // 4. The consumer resolves the package's own dependencies from this repository.
   const modules = path.join(consumer, "node_modules");
   for (const name of readdirSync(path.join(root, "node_modules"))) {
-    if (name.startsWith(".") || name === "@7dimensions-project") continue;
+    if (name.startsWith(".") || name === "@sitekeephq") continue;
     symlinkSync(path.join(root, "node_modules", name), path.join(modules, name));
   }
 
@@ -65,8 +65,8 @@ try {
   writeFileSync(
     path.join(consumer, "consumer.tsx"),
     `// The SiteKeep web app's imports (apps/web) and the README examples.
-import { CLASH_COLORS, COMPARE_COLORS, ViewerEngine, rebaseViewpoint, type IssueViewpoint, type SelectedItem, type ViewerExtension } from "@7dimensions-project/bim-viewer";
-import { PropertiesPanel, ScanViewer, ViewerCanvas, ViewerToolsHud, useViewerTools } from "@7dimensions-project/bim-viewer/react";
+import { CLASH_COLORS, COMPARE_COLORS, ViewerEngine, rebaseViewpoint, type IssueViewpoint, type SelectedItem, type ViewerExtension } from "@sitekeephq/bim-viewer";
+import { PropertiesPanel, ScanViewer, ViewerCanvas, ViewerToolsHud, useViewerTools } from "@sitekeephq/bim-viewer/react";
 import {
   COST_RAMP,
   GuidCache,
@@ -80,10 +80,10 @@ import {
   paintSim,
   recordCanvas,
   toolMoreItems,
-} from "@7dimensions-project/bim-viewer/tools";
-import { configureIotApi, configureScanAssets } from "@7dimensions-project/bim-viewer/scan";
-import "@7dimensions-project/bim-viewer/styles.css";
-import "@7dimensions-project/bim-viewer/tools.css";
+} from "@sitekeephq/bim-viewer/tools";
+import { configureIotApi, configureScanAssets } from "@sitekeephq/bim-viewer/scan";
+import "@sitekeephq/bim-viewer/styles.css";
+import "@sitekeephq/bim-viewer/tools.css";
 
 export const issuePins: ViewerExtension = {
   id: "cde-issue-pins",

@@ -20,7 +20,7 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://npm.pkg.github.com
-          scope: "@7dimensions-project"
+          scope: "@sitekeephq"
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:coverage
